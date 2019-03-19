@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*
 import math
-import os, time
+import os
+import time
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -21,7 +22,7 @@ parser.add_argument('--dataset', type=str, default='bc-30-1_CA',
 parser.add_argument('--input_type', type=str, default='cif',
                     help='type of input file')
 parser.add_argument('--output_type', type=str, default='image',
-                    help='image or distance map, default: images')
+                    help='image or distance_map, default: images')
 parser.add_argument('--map_range', type=int, default='42',
                     help='map range of structures, default: -42 to 42')
 parser.add_argument('--multi_process', type=bool, default=False,
@@ -33,7 +34,9 @@ parser.add_argument('--move2center', type=bool, default=False,
 parser.add_argument('--redistribute', type=bool, default=False,
                     help='redistribute the original distribution according to normal distribution')
 parser.add_argument('--relative_number', type=bool, default=True,
-                    help='mark protein with relative serial number')
+                    help='mark dots with relative serial number')
+parser.add_argument('--draw_connection', type=bool, default=False,
+                    help='draw dots connection or not')
 parser.add_argument('--redistribute_rate', type=float, default='1.4',
                     help='coefficient of redistribution amplitude')
 args = parser.parse_args()
@@ -52,7 +55,7 @@ for aa in range(len(AMINO_ACIDS)):
 
 
 class Atom(object):
-    def __init__(self, aminoacid, index, x, y, z, atom_type, element):
+    def __init__(self, aminoacid, index, x, y, z, atom_type='CA', element='C'):
         self.index = int(index)
         self.aa = aminoacid
         self.x = float(x)
@@ -78,11 +81,28 @@ def extract_cif(cif_message):
     return atoms
 
 
+def extract_ca_cif(cif_message):
+    atoms = []
+    for line in cif_message:
+        if line[11] == 'CA':
+            line = line.split()
+            atoms.append(Atom(line[5], line[8], line[10], line[11], line[12]))
+    return atoms
+
+
 def extract_pdb(pdb_message):
     atoms = []
     for line in pdb_message:
         atoms.append(Atom(line[17:20], line[13:16], line[30:38],
                           line[38:46], line[46:54], line[13:16], line[77]))
+    return atoms
+
+
+def extract_ca_pdb(pdb_message):
+    atoms = []
+    for line in pdb_message:
+        if line[13:15] == 'CA':
+            atoms.append(Atom(line[17:20], line[13:16], line[30:38], line[38:46], line[46:54]))
     return atoms
 
 
@@ -236,7 +256,7 @@ def arraylize(atoms):
             rec.update({(x_ary, y_ary): atom})
     if args.relative_number:
         array[:, :, 1] /= (len(atoms) + 1)
-    return array
+    return array, rec
 
 
 # def values_sta(path):
@@ -327,25 +347,33 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def dots_connection(dot1, dot2, array):
-    path = [dot2[1]-dot1[1], dot2[2]-dot1[2]]
+def dots_connection(dot1, dot2, array, site):
+    path = [site[dot2][0]-site[dot1][0], site[dot2][1]-site[dot1][1]]
     moves_count = abs(path[0])+abs(path[1])-2
     if moves_count > 0:
         moves = []
-        for i in range(1, moves_count+1):
-            moves.append([int(path[0]*i/moves_count-0.01), int(path[1]*i/moves_count-0.01)])
+        for i in range(moves_count):
+            moves.append([int(path[0]*(i+1)/moves_count-0.01), int(path[1]*(i+1)/moves_count-0.01)])
         for i in range(len(moves)):
-            if array[dot1[1]+moves[i][0], dot1[2]+moves[i][1], 2] == 0:
-                array[dot1[1]+moves[i][0], dot1[2]+moves[i][1]] = [dot1[3]+(dot2[3]-dot1[3])*(i+1)/(moves_count+1),
-                                                                   dot1[0]+(dot2[0]-dot1[0])*(i+1)/(moves_count+1),
+            if array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1], 2] == 0:
+                array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1]] = [dot1.z+(dot2.z-dot1.z)*(i+1)/(moves_count+1),
+                                                                   dot1.index+(dot2.index-dot1.index)*(i+1)/(moves_count+1),
                                                                    0]
+
+
+def draw_connection(atoms, array, rec):
+    site = {}
+    for (x, y) in rec.keys():
+        site.update({rec[(x,y)]: [x,y]})
+    for i in range(len(atoms)-1):
+        dots_connection(atoms[i], atoms[i+1], array, site)
 
 
 def write_log(path):
     arg_name_list = ['dataset', 'resolution', 'input_type', 'output_type', 'map_range', 'multi_atom',
-                     'move2center', 'redistribute', 'redistribute_rate', 'relative_number']
+                     'move2center', 'redistribute', 'redistribute_rate', 'relative_number', 'draw_connection']
     arg_list = [args.dataset, args.resolution, args.input_type, args.output_type, args.map_range, args.multi_atom,
-                args.move2center, args.redistribute, args.redistribute_rate, args.relative_number]
+                args.move2center, args.redistribute, args.redistribute_rate, args.relative_number, args.draw_connection]
     write_list = [time.strftime("%Y%m%d_%H%M", time.localtime())]
     for i in range(len(arg_name_list)):
         print("%s = %s" % (arg_name_list[i], str(arg_list[i])))
@@ -379,10 +407,18 @@ def process():
                 atoms = relocate(extract_message(readfile(filename, input_folder), args.input_type))
                 if args.move2center:
                     atoms = move2center(atoms)
-                array = arraylize(atoms)
+                if args.draw_connection:
+                    array, rec = arraylize(atoms)
+                    draw_connection(atoms, array, rec)
+                else:
+                    array, _ = arraylize(atoms)
                 output_name = filename.replace('.cif', '.npy')
                 np.save(output_dir + '\\' + output_name, array)
                 break
+    elif args.output_type == 'distance_map':
+        if args.multi_atom:
+            for filename in os.listdir(input_folder):
+                atoms = extract_message(readfile(filename, input_folder), args.input_type)
 
 
 if __name__ == '__main__':
