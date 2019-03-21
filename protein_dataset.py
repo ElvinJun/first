@@ -254,8 +254,6 @@ def arraylize(atoms):
         else:
             array[x_ary, y_ary] = [atom.z, atom.index, AMINO_ACID_NUMBERS.get(atom.aa)]
             rec.update({(x_ary, y_ary): atom})
-    if args.relative_number:
-        array[:, :, 1] /= (len(atoms) + 1)
     return array, rec
 
 
@@ -412,9 +410,10 @@ def process():
                     draw_connection(atoms, array, rec)
                 else:
                     array, _ = arraylize(atoms)
+                if args.relative_number:
+                    array[:, :, 1] /= (len(atoms) + 1)
                 output_name = filename.replace('.cif', '.npy')
                 np.save(output_dir + '\\' + output_name, array)
-                break
     elif args.output_type == 'distance_map':
         if args.multi_atom:
             for filename in os.listdir(input_folder):
