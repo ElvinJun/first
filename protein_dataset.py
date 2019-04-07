@@ -345,18 +345,20 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def dots_connection(dot1, dot2, array, site):
-    path = [site[dot2][0]-site[dot1][0], site[dot2][1]-site[dot1][1]]
-    moves_count = abs(path[0])+abs(path[1])-2
+def dots_connect(dot1, dot2, array, site):
+    path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
+    moves_count = abs(path[0]) + abs(path[1]) - 2
     if moves_count > 0:
-        moves = []
-        for i in range(moves_count):
-            moves.append([int(path[0]*(i+1)/moves_count-0.01), int(path[1]*(i+1)/moves_count-0.01)])
-        for i in range(len(moves)):
-            if array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1], 2] == 0:
-                array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1]] = [dot1.z+(dot2.z-dot1.z)*(i+1)/(moves_count+1),
-                                                                   dot1.index+(dot2.index-dot1.index)*(i+1)/(moves_count+1),
-                                                                   0]
+        for i in range(path[0]):
+            if array[site[dot1][0] + i + 1, site[dot1][1],2] == 0:
+                array[site[dot1][0] + i + 1, site[dot1][1]] = [
+                    dot1.z + (dot2.z - dot1.z) * (i + 1) / (path[0]+1),
+                    dot1.index + (dot2.index - dot1.index) * (i + 1) /(path[0]+1),0]
+        for j in range(path[1]-1):
+            if array[site[dot1][0] , site[dot1][1] + j + 1,2] == 0:
+                array[site[dot1][0] , site[dot1][1] + j + 1] = [
+                    dot1.z + (dot2.z - dot1.z) * (j + 1) / (path[1]+1),
+                    dot1.index + (dot2.index - dot1.index) * (j + 1) /(path[1]+1),0]
 
 
 def draw_connection(atoms, array, rec):
