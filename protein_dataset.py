@@ -348,7 +348,7 @@ def vis_normal_dis(values, var, coefficient):
 def dots_connect(dot1, dot2, array, site):
     path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
     moves_count = abs(path[0]) + abs(path[1]) - 2
-    if moves_count > 0:
+    if moves_count >= 0:
         for i in range(path[0]):
             if array[site[dot1][0] + i + 1, site[dot1][1],2] == 0:
                 array[site[dot1][0] + i + 1, site[dot1][1]] = [
