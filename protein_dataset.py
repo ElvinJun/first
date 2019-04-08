@@ -29,14 +29,16 @@ parser.add_argument('--multi_process', type=bool, default=False,
                     help='multi_process or not')
 parser.add_argument('--multi_atom', type=bool, default=False,
                     help='input with 4 atoms and not just CA only')
-parser.add_argument('--move2center', type=bool, default=False,
+parser.add_argument('--move2center', type=bool, default=True,
                     help='relocate the center of proteins to the center of coordinate system')
 parser.add_argument('--redistribute', type=bool, default=False,
                     help='redistribute the original distribution according to normal distribution')
 parser.add_argument('--relative_number', type=bool, default=True,
                     help='mark dots with relative serial number')
-parser.add_argument('--draw_connection', type=bool, default=False,
+parser.add_argument('--draw_connection', type=bool, default=True,
                     help='draw dots connection or not')
+parser.add_argument('--aminoacid_number', type=bool, default=False,
+                    help='mark aminoacid with numbers 20-39 or 1')
 parser.add_argument('--redistribute_rate', type=float, default='1.4',
                     help='coefficient of redistribution amplitude')
 args = parser.parse_args()
@@ -49,9 +51,36 @@ AMINO_ACIDS = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS',
                'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
                'LEU', 'LYS', 'MET', 'PHE', 'PRO',
                'SER', 'THR', 'TRP', 'TYR', 'VAL']
+AA_HYDROPATHY_INDEX = {
+    'ARG': -4.5,
+    'LYS': -3.9,
+    'ASN': -3.5,
+    'ASP': -3.5,
+    'GLN': -3.5,
+    'GLU': -3.5,
+    'HIS': -3.2,
+    'PRO': -1.6,
+    'TYR': -1.3,
+    'TRP': -0.9,
+    'SER': -0.8,
+    'THR': -0.7,
+    'GLY': -0.4,
+    'ALA': 1.8,
+    'MET': 1.9,
+    'CYS': 2.5,
+    'PHE': 2.8,
+    'LEU': 3.8,
+    'VAL': 4.2,
+    'ILE': 4.5,
+}
 AMINO_ACID_NUMBERS = {}
-for aa in range(len(AMINO_ACIDS)):
-    AMINO_ACID_NUMBERS.update({AMINO_ACIDS[aa]: aa+20.5})
+if args.aminoacid_number:
+    for aa in range(len(AMINO_ACIDS)):
+        AMINO_ACID_NUMBERS.update({AMINO_ACIDS[aa]: aa+20.5})
+else:
+    # AMINO_ACID_NUMBERS = AA_HYDROPATHY_INDEX
+    for aa in AMINO_ACIDS:
+        AMINO_ACID_NUMBERS.update({aa: AA_HYDROPATHY_INDEX[aa]/4.5})
 
 
 class Atom(object):
@@ -76,16 +105,17 @@ def extract_cif(cif_message):
     atoms = []
     for line in cif_message:
         line = line.split()
-        atoms.append(Atom(line[5], line[8], line[10],
-                          line[11], line[12], line[3], line[2]))
+        if line[3] in ['CA', 'C', 'N']:
+            atoms.append(Atom(line[5], line[8], line[10],
+                              line[11], line[12], line[3], line[2]))
     return atoms
 
 
 def extract_ca_cif(cif_message):
     atoms = []
     for line in cif_message:
-        if line[11] == 'CA':
-            line = line.split()
+        line = line.split()
+        if line[3] == 'CA':
             atoms.append(Atom(line[5], line[8], line[10], line[11], line[12]))
     return atoms
 
@@ -93,8 +123,9 @@ def extract_ca_cif(cif_message):
 def extract_pdb(pdb_message):
     atoms = []
     for line in pdb_message:
-        atoms.append(Atom(line[17:20], line[13:16], line[30:38],
-                          line[38:46], line[46:54], line[13:16], line[77]))
+        if line[13:15] in ['N ', 'CA', 'C ']:
+            atoms.append(Atom(line[17:20], line[13:16], line[30:38],
+                              line[38:46], line[46:54], line[13:16], line[77]))
     return atoms
 
 
@@ -108,15 +139,33 @@ def extract_ca_pdb(pdb_message):
 
 def extract_message(message, message_type):
     if message_type == 'pdb':
-        return extract_pdb(message)
+        if args.multi_atom:
+            return extract_pdb(message)
+        else:
+            return extract_ca_pdb(message)
     elif message_type == 'cif':
-        return extract_cif(message)
+        if args.multi_atom:
+            return extract_cif(message)
+        else:
+            return extract_ca_cif(message)
 
 
-def rotation_axis(first_residue):
-    x = first_residue.x
-    y = first_residue.y
-    z = first_residue.z
+def find_head(atoms):
+    for atom in atoms:
+        if atom.type == 'CA':
+            return atom
+
+
+def find_tail(atoms):
+    for i in range(1, len(atoms)+1):
+        if atoms[-i].type == 'CA':
+            return atoms[-i]
+
+
+def rotation_axis(head):
+    x = head.x
+    y = head.y
+    z = head.z
     c = ((y - x) ** 2 /
          ((y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / mr - z) ** 2
            + (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / mr - z) ** 2
@@ -127,10 +176,10 @@ def rotation_axis(first_residue):
     return [(a, b, c), (-a, -b, -c)]  # 转轴
 
 
-def rotation_angle(first_residue):
-    x = first_residue.x
-    y = first_residue.y
-    z = first_residue.z
+def rotation_angle(head):
+    x = head.x
+    y = head.y
+    z = head.z
     return math.acos(
         ((x + y) * s + z * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5) /
         (x ** 2 + y ** 2 + z ** 2)
@@ -147,18 +196,20 @@ def rotation(u, v, w, t, axis):  # 原始坐标
 
 
 def relocate(atoms):
-    x_o = (atoms[0].x + atoms[-1].x) / 2
-    y_o = (atoms[0].y + atoms[-1].y) / 2
-    z_o = (atoms[0].z + atoms[-1].z) / 2
+    head = find_head(atoms)
+    tail = find_tail(atoms)
+    x_o = (head.x + tail.x) / 2
+    y_o = (head.y + tail.y) / 2
+    z_o = (head.z + tail.z) / 2
     for atom in atoms:
         atom.x -= x_o
         atom.y -= y_o
         atom.z -= z_o
-    vs = rotation_axis(atoms[0])
-    t = rotation_angle(atoms[0])
+    vs = rotation_axis(head)
+    t = rotation_angle(head)
     atom_v = []
     for v in vs:
-        atom_v.append(rotation(atoms[0].x, atoms[0].y, atoms[0].z, t, v))
+        atom_v.append(rotation(head.x, head.y, head.z, t, v))
     if abs(atom_v[0][0] - s) + abs(atom_v[0][1] - s) < abs(atom_v[1][0] - s) + abs(atom_v[1][1] - s):
         k = 0
     else:
@@ -171,7 +222,8 @@ def relocate(atoms):
 def move2center(atoms):
     coordinates = []
     for atom in atoms:
-        coordinates.append([atom.x, atom.y, atom.z])
+        if atom.type == 'CA':
+            coordinates.append([atom.x, atom.y, atom.z])
     coordinates = np.array(coordinates)
     center = tf.Variable(tf.zeros([1, 3]))
     distances = coordinates-center
@@ -188,11 +240,11 @@ def move2center(atoms):
     while losses[-1] != losses[-5]:
         sess.run(train)
         losses.append(sess.run(loss))
-    coordinates -= sess.run(center)
-    for i in range(len(atoms)):
-        atoms[i].x = coordinates[i][0]
-        atoms[i].y = coordinates[i][1]
-        atoms[i].z = coordinates[i][2]
+    final_center = sess.run(center)[0]
+    for atom in atoms:
+        atom.x -= final_center[0]
+        atom.y -= final_center[1]
+        atom.z -= final_center[2]
     tf.reset_default_graph()
     return atoms
 
@@ -228,7 +280,7 @@ def close_neibor(array, x_ary, y_ary, dot, dis_x, dis_y, rec):
         step += 1
 
 
-def lattice_battle(array, x_ary, y_ary, dot1, dot2, rec):  # dot1 is old; dot2 is new
+def lattice_battle(array, x_ary, y_ary, dot1, dot2, rec):  # dot1 is original; dot2 is new
     dis1_x = dot1.x / (2 * s) % 1 - 0.5
     dis1_y = dot1.y / (2 * s) % 1 - 0.5
     dis2_x = dot2.x / (2 * s) % 1 - 0.5
@@ -345,92 +397,123 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def dots_connection(dot1, dot2, array, site):
-    path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
-    
-    if path[0] > 0:
-        i_move = 1
-    elif path[0]==0:
-        i_move = 0
-    else:
-        i_move = -1
-        
-    if path[1] > 0:
-        j_move = 1
-    elif path[1] == 0:
-        j_move = 0
-    else:
-        j_move = -1
-        
-    moves_count = abs(path[0]) + abs(path[1]) - 2
-    if moves_count >= 0:
-        for i in range(max(abs(path[0]),abs(path[1]))):
-            if abs(path[0]) > abs(path[1]):
-                if abs(path[1])<=1:
-                    if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1], 2] == 0:
-                        array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]] = [
-                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + abs(path[1])),
-                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + abs(path[1])), 0]
-                else:
-                    iter = abs(path[0]) // (abs(path[1]))
-                    #Slope =abs(path[0]) //( abs(path[1])-1)
-                    remainder = abs(path[0]) % (abs(path[1]))
-                    if i<abs(path[0])-remainder:
-                        if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+(i//iter)*j_move, 2] == 0:
-                            array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+(i//iter)*j_move] = [
-                                dot1.z + (dot2.z - dot1.z) * ((i + 1)+(i//iter)) / (abs(path[0]) + abs(path[1])),
-                                dot1.index + (dot2.index - dot1.index) * ((i + 1)+(i//iter)) / (abs(path[0]) + abs(path[1])), 0]
-                        if (i+1)%iter==0:
-                            if array[site[dot1][0]  + (i + 1) * i_move, site[dot1][1] + ((i+1)//iter) * j_move, 2] == 0:
-                                array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + ((i+1)//iter) * j_move] = [
-                                    dot1.z + (dot2.z - dot1.z) * ((i + 1)+((i + 1)//iter)) / (abs(path[0]) + abs(path[1])),
-                                    dot1.index + (dot2.index - dot1.index) * ((i + 1)+((i + 1)//iter)) / (abs(path[0]) + abs(path[1])), 0]
-                    else:
-                        if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+abs(path[1])*j_move, 2] == 0:
-                            array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+abs(path[1])*j_move] = [
-                                dot1.z + (dot2.z - dot1.z) * ((i + 1)+abs(path[1])) / (abs(path[0]) + abs(path[1])),
-                                dot1.index + (dot2.index - dot1.index) * ((i + 1)+abs(path[1])) / (abs(path[0]) + abs(path[1])), 0]
-            else:
-                if abs(path[0])<=1:
-                    if array[site[dot1][0] , site[dot1][1]+(i+1)*j_move, 2] == 0:
-                        array[site[dot1][0] , site[dot1][1]+(i+1)*j_move] = [
-                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
-                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + abs(path[1])), 0]
-                else:
-                    iter = abs(path[1]) // (abs(path[0]))
-                    #Slope =abs(path[0]) //( abs(path[1])-1)
-                    remainder = abs(path[1]) % (abs(path[0]))
-                    if i<abs(path[1])-remainder:
-                        if array[site[dot1][0] + (i//iter) * i_move, site[dot1][1]+ (i + 1) * j_move, 2] == 0:
-                            array[site[dot1][0] + (i//iter) * i_move, site[dot1][1]+ (i + 1) * j_move] = [
-                                dot1.z + (dot2.z - dot1.z) * ((i + 1)+(i//iter)) / (abs(path[0]) + abs(path[1])),
-                                dot1.index + (dot2.index - dot1.index) * ((i + 1)+(i//iter)) / (abs(path[0]) + abs(path[1])), 0]
-                        if (i+1)%iter==0:
-                            if array[site[dot1][0]  + ((i+1)//iter) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
-                                array[site[dot1][0] + ((i+1)//iter) * i_move, site[dot1][1] + (i + 1) * j_move] = [
-                                    dot1.z + (dot2.z - dot1.z) * ((i + 1)+((i + 1)//iter)) / (abs(path[0]) + abs(path[1])),
-                                    dot1.index + (dot2.index - dot1.index) * ((i + 1)+((i + 1)//iter)) / (abs(path[0]) + abs(path[1])), 0]
-                    else:
-                        if array[site[dot1][0] + path[0] * i_move, site[dot1][1]+ (i + 1) *j_move, 2] == 0:
-                            array[site[dot1][0] + path[0] * i_move, site[dot1][1]+ (i + 1) *j_move] = [
-                                dot1.z + (dot2.z - dot1.z) * ((i + 1)+abs(path[0])) / (abs(path[0]) + abs(path[1])),
-                                dot1.index + (dot2.index - dot1.index) * ((i + 1)+abs(path[0])) / (abs(path[0]) + abs(path[1])), 0]
+# def dots_connection(dot1, dot2, array, site):
+#     path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
+#
+#     if path[0] > 0:
+#         i_move = 1
+#     elif path[0] == 0:
+#         i_move = 0
+#     else:
+#         i_move = -1
+#
+#     if path[1] > 0:
+#         j_move = 1
+#     elif path[1] == 0:
+#         j_move = 0
+#     else:
+#         j_move = -1
+#
+#     moves_count = abs(path[0]) + abs(path[1]) - 2
+#     if moves_count >= 0:
+#         for i in range(max(abs(path[0]), abs(path[1]))):
+#             if abs(path[0]) > abs(path[1]):
+#                 if abs(path[1]) <= 1:
+#                     if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1], 2] == 0:
+#                         array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]] = [
+#                             dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + abs(path[1])),
+#                             dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + abs(path[1])), 0]
+#                 else:
+#                     iter = abs(path[0]) // (abs(path[1]))
+#                     # Slope =abs(path[0]) //( abs(path[1])-1)
+#                     remainder = abs(path[0]) % (abs(path[1]))
+#                     if i < abs(path[0]) - remainder:
+#                         if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i // iter) * j_move, 2] == 0:
+#                             array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i // iter) * j_move] = [
+#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + (i // iter)) / (abs(path[0]) + abs(path[1])),
+#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + (i // iter)) / (
+#                                             abs(path[0]) + abs(path[1])), 0]
+#                         if (i + 1) % iter == 0:
+#                             if array[
+#                                 site[dot1][0] + (i + 1) * i_move, site[dot1][1] + ((i + 1) // iter) * j_move, 2] == 0:
+#                                 array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + ((i + 1) // iter) * j_move] = [
+#                                     dot1.z + (dot2.z - dot1.z) * ((i + 1) + ((i + 1) // iter)) / (
+#                                                 abs(path[0]) + abs(path[1])),
+#                                     dot1.index + (dot2.index - dot1.index) * ((i + 1) + ((i + 1) // iter)) / (
+#                                                 abs(path[0]) + abs(path[1])), 0]
+#                     else:
+#                         if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + abs(path[1]) * j_move, 2] == 0:
+#                             array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + abs(path[1]) * j_move] = [
+#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + abs(path[1])) / (abs(path[0]) + abs(path[1])),
+#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + abs(path[1])) / (
+#                                             abs(path[0]) + abs(path[1])), 0]
+#             else:
+#                 if abs(path[0]) <= 1:
+#                     if array[site[dot1][0], site[dot1][1] + (i + 1) * j_move, 2] == 0:
+#                         array[site[dot1][0], site[dot1][1] + (i + 1) * j_move] = [
+#                             dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
+#                             dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + abs(path[1])), 0]
+#                 else:
+#                     iter = abs(path[1]) // (abs(path[0]))
+#                     # Slope =abs(path[0]) //( abs(path[1])-1)
+#                     remainder = abs(path[1]) % (abs(path[0]))
+#                     if i < abs(path[1]) - remainder:
+#                         if array[site[dot1][0] + (i // iter) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
+#                             array[site[dot1][0] + (i // iter) * i_move, site[dot1][1] + (i + 1) * j_move] = [
+#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + (i // iter)) / (abs(path[0]) + abs(path[1])),
+#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + (i // iter)) / (
+#                                             abs(path[0]) + abs(path[1])), 0]
+#                         if (i + 1) % iter == 0:
+#                             if array[
+#                                 site[dot1][0] + ((i + 1) // iter) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
+#                                 array[site[dot1][0] + ((i + 1) // iter) * i_move, site[dot1][1] + (i + 1) * j_move] = [
+#                                     dot1.z + (dot2.z - dot1.z) * ((i + 1) + ((i + 1) // iter)) / (
+#                                                 abs(path[0]) + abs(path[1])),
+#                                     dot1.index + (dot2.index - dot1.index) * ((i + 1) + ((i + 1) // iter)) / (
+#                                                 abs(path[0]) + abs(path[1])), 0]
+#                     else:
+#                         if array[site[dot1][0] + path[0] * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
+#                             array[site[dot1][0] + path[0] * i_move, site[dot1][1] + (i + 1) * j_move] = [
+#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + abs(path[0])) / (abs(path[0]) + abs(path[1])),
+#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + abs(path[0])) / (
+#                                             abs(path[0]) + abs(path[1])), 0]
 
+
+def dots_connection(dot1, dot2, array, site):
+    path = [site[dot2][0]-site[dot1][0], site[dot2][1]-site[dot1][1]]
+    moves_count = abs(path[0])+abs(path[1])-1
+    if moves_count > 0:
+        moves = []
+        for i in range(moves_count):
+            moves.append([int(path[0]*(i+1)/moves_count), int(path[1]*(i+1)/moves_count)])
+        for i in range(len(moves)):
+            if array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1], 2] == 0:
+                # array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1]] = [
+                #     dot1.z+(dot2.z-dot1.z)*(i+1)/(moves_count+1),
+                #     dot1.index+(dot2.index-dot1.index)*(i+1)/(moves_count+1),
+                #     AA_HYDROPATHY_INDEX[dot1.aa]+(
+                #             AA_HYDROPATHY_INDEX[dot2.aa]-AA_HYDROPATHY_INDEX[dot1.aa])*(i+1)/(moves_count+1)]
+                array[site[dot1][0] + moves[i][0], site[dot1][1] + moves[i][1]] = [
+                    dot1.z + (dot2.z - dot1.z) * (i + 1) / (moves_count + 1),
+                    dot1.index + (dot2.index - dot1.index) * (i + 1) / (moves_count + 1),
+                    0]
 
 
 def draw_connection(atoms, array, rec):
     site = {}
     for (x, y) in rec.keys():
-        site.update({rec[(x,y)]: [x,y]})
+        site.update({rec[(x, y)]: [x, y]})
     for i in range(len(atoms)-1):
         dots_connection(atoms[i], atoms[i+1], array, site)
 
 
 def write_log(path):
     arg_name_list = ['dataset', 'resolution', 'input_type', 'output_type', 'map_range', 'multi_atom',
-                     'move2center', 'redistribute', 'redistribute_rate', 'relative_number', 'draw_connection']
+                     'move2center', 'redistribute', 'redistribute_rate', 'relative_number', 'draw_connection',
+                     'aminoacid_number']
     arg_list = [args.dataset, args.resolution, args.input_type, args.output_type, args.map_range, args.multi_atom,
-                args.move2center, args.redistribute, args.redistribute_rate, args.relative_number, args.draw_connection]
+                args.move2center, args.redistribute, args.redistribute_rate, args.relative_number, args.draw_connection,
+                args.aminoacid_number]
     write_list = [time.strftime("%Y%m%d_%H%M", time.localtime())]
     for i in range(len(arg_name_list)):
         print("%s = %s" % (arg_name_list[i], str(arg_list[i])))
@@ -473,6 +556,7 @@ def process():
                     array[:, :, 1] /= (len(atoms) + 1)
                 output_name = filename.replace('.cif', '.npy')
                 np.save(output_dir + '\\' + output_name, array)
+                # break
     elif args.output_type == 'distance_map':
         if args.multi_atom:
             for filename in os.listdir(input_folder):
