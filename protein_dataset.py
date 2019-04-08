@@ -345,34 +345,59 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def dots_connect(self,dot1, dot2, array, site):
-            path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
-            moves_count = abs(path[0]) + abs(path[1]) - 2
-            if path[0]>0:
-                i_move=1
-            elif path[0]=0:
-                i_move=0
+def dots_connection(dot1, dot2, array, site):
+    path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
+
+    if path[0] > 0:
+        i_move = 1
+    elif path[0]==0:
+        i_move = 0
+    else:
+        i_move = -1
+
+    if path[1] > 0:
+        j_move = 1
+    elif path[1] == 0:
+        j_move = 0
+    else:
+        j_move = -1
+    moves_count = abs(path[0]) + abs(path[1]) - 2
+
+    if moves_count >= 0:
+        for i in range(max(abs(path[0]),abs(path[1]))):
+            if abs(path[0]) > abs(path[1]):
+                iter = abs(path[1])
+                if i<iter-1:
+                    if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+i*j_move, 2] == 0:
+                        array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+i*j_move] = [
+                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
+                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + 1), 0]
+                    if array[site[dot1][0]  + (i + 1) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
+                        array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i + 1) * j_move] = [
+                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[1]) + 1),
+                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[1]) + 1), 0]
+                else:
+                    if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+(iter-1)*j_move, 2] == 0:
+                        array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]+(iter-1)*j_move] = [
+                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
+                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + 1), 0]
             else:
-                i_move=-1
-                
-            if path[1]>0:
-                j_move=1
-            elif path[1]==0:
-                j_move=0
-            else:
-                j_move=-1
-                
-            if moves_count >= 0:
-                for i in range(path[0]):
-                    if array[site[dot1][0] + (i + 1)*i_move , site[dot1][1], 2] == 0:
-                        array[site[dot1][0] + (i + 1)*i_move, site[dot1][1]] = [
-                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (path[0] + 1),
-                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (path[0] + 1), 0]
-                for j in range(path[1] - 1):
-                    if array[site[dot1][0]+path[0], site[dot1][1] + (j + 1)*j_move, 2] == 0:
-                        array[site[dot1][0]+path[0], site[dot1][1] + (j + 1)*j_move] = [
-                            dot1.z + (dot2.z - dot1.z) * (j + 1) / (path[1] + 1),
-                            dot1.index + (dot2.index - dot1.index) * (j + 1) / (path[1] + 1), 0]
+                iter = abs(path[0])
+                if i < iter - 1:
+                    if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + i * j_move, 2] == 0:
+                        array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + i * j_move] = [
+                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
+                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + 1), 0]
+                    if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
+                        array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i + 1) * j_move] = [
+                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[1]) + 1),
+                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[1]) + 1), 0]
+                else:
+                    if array[site[dot1][0] + (iter - 1) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
+                        array[site[dot1][0] + (iter - 1) * i_move, site[dot1][1] + (i + 1)  * j_move] = [
+                            dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
+                            dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + 1), 0]
+
 
 
 def draw_connection(atoms, array, rec):
