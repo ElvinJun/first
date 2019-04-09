@@ -11,19 +11,19 @@ from multiprocessing import Pool
 import argparse
 
 parser = argparse.ArgumentParser(description='manual to this script')
-parser.add_argument('--resolution', type=int, default='256',
+parser.add_argument('--resolution', type=int, default='512',
                     help='output resolution')
-parser.add_argument('--dataset_path', type=str, default='D:\protein structure prediction\data\dataset',
+parser.add_argument('--dataset_path', type=str, default='D:\module\pdb_screening',
                     help='path of dataset')
-parser.add_argument('--output_path', type=str, default='D:\protein structure prediction\data\dataset\processed data',
+parser.add_argument('--output_path', type=str, default='D:\module\pdb_screening',
                     help='path of output')
-parser.add_argument('--dataset', type=str, default='bc-30-1_CA',
+parser.add_argument('--dataset', type=str, default='cif_filtered',
                     help='name of dataset folder')
 parser.add_argument('--input_type', type=str, default='cif',
                     help='type of input file')
 parser.add_argument('--output_type', type=str, default='image',
                     help='image or distance_map, default: images')
-parser.add_argument('--map_range', type=int, default='42',
+parser.add_argument('--axis_range', type=int, default='64',
                     help='map range of structures, default: -42 to 42')
 parser.add_argument('--multi_process', type=bool, default=False,
                     help='multi_process or not')
@@ -44,8 +44,8 @@ parser.add_argument('--redistribute_rate', type=float, default='1.4',
 args = parser.parse_args()
 
 res = args.resolution
-mr = args.map_range
-s = mr / res  # scale=map_range/resolution
+ar = args.axis_range
+s = ar / res  # scale=axis_range/resolution
 input_folder = args.dataset_path + '\\' + args.dataset
 AMINO_ACIDS = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS',
                'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
@@ -167,12 +167,12 @@ def rotation_axis(head):
     y = head.y
     z = head.z
     c = ((y - x) ** 2 /
-         ((y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / mr - z) ** 2
-           + (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / mr - z) ** 2
+         ((y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) ** 2
+           + (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) ** 2
            + (y - x) ** 2)
          ) ** 0.5
-    a = (y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / mr - z) / (x - y) * c
-    b = (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / mr - z) / (y - x) * c
+    a = (y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) / (x - y) * c
+    b = (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) / (y - x) * c
     return [(a, b, c), (-a, -b, -c)]  # 转轴
 
 
@@ -211,11 +211,11 @@ def relocate(atoms):
     for v in vs:
         atom_v.append(rotation(head.x, head.y, head.z, t, v))
     if abs(atom_v[0][0] - s) + abs(atom_v[0][1] - s) < abs(atom_v[1][0] - s) + abs(atom_v[1][1] - s):
-        k = 0
+        for atom in atoms:
+            (atom.x, atom.y, atom.z) = rotation(atom.x, atom.y, atom.z, t, vs[0])
     else:
-        k = 1
-    for atom in atoms:
-        (atom.x, atom.y, atom.z) = rotation(atom.x, atom.y, atom.z, t, vs[k])
+        for atom in atoms:
+            (atom.x, atom.y, atom.z) = rotation(atom.x, atom.y, atom.z, t, vs[1])
     return atoms
 
 
@@ -299,8 +299,8 @@ def arraylize(atoms):
     array = np.zeros([res, res, 3], dtype=float, order='C')
     rec = {}  # atoms record
     for atom in atoms:
-        x_ary = int((atom.x + mr) // (2 * s))
-        y_ary = int((atom.y + mr) // (2 * s))
+        x_ary = int((atom.x + ar) // (2 * s))
+        y_ary = int((atom.y + ar) // (2 * s))
         if rec.get((x_ary, y_ary)):
             array = lattice_battle(array, x_ary, y_ary, rec[(x_ary, y_ary)], atom, rec)
         else:
@@ -351,7 +351,7 @@ def visual_values_dis(values):
     idx = 0
     dis = []
     dis_count = []
-    axis_length = 2*mr
+    axis_length = 2*ar
     for i in range(1, res+1):
         cut_point = (i-res/2)*axis_length/res
         if idx == len(values):
@@ -397,121 +397,93 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-# def dots_connection(dot1, dot2, array, site):
-#     path = [site[dot2][0] - site[dot1][0], site[dot2][1] - site[dot1][1]]
-#
-#     if path[0] > 0:
-#         i_move = 1
-#     elif path[0] == 0:
-#         i_move = 0
-#     else:
-#         i_move = -1
-#
-#     if path[1] > 0:
-#         j_move = 1
-#     elif path[1] == 0:
-#         j_move = 0
-#     else:
-#         j_move = -1
-#
-#     moves_count = abs(path[0]) + abs(path[1]) - 2
-#     if moves_count >= 0:
-#         for i in range(max(abs(path[0]), abs(path[1]))):
-#             if abs(path[0]) > abs(path[1]):
-#                 if abs(path[1]) <= 1:
-#                     if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1], 2] == 0:
-#                         array[site[dot1][0] + (i + 1) * i_move, site[dot1][1]] = [
-#                             dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + abs(path[1])),
-#                             dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + abs(path[1])), 0]
-#                 else:
-#                     iter = abs(path[0]) // (abs(path[1]))
-#                     # Slope =abs(path[0]) //( abs(path[1])-1)
-#                     remainder = abs(path[0]) % (abs(path[1]))
-#                     if i < abs(path[0]) - remainder:
-#                         if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i // iter) * j_move, 2] == 0:
-#                             array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + (i // iter) * j_move] = [
-#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + (i // iter)) / (abs(path[0]) + abs(path[1])),
-#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + (i // iter)) / (
-#                                             abs(path[0]) + abs(path[1])), 0]
-#                         if (i + 1) % iter == 0:
-#                             if array[
-#                                 site[dot1][0] + (i + 1) * i_move, site[dot1][1] + ((i + 1) // iter) * j_move, 2] == 0:
-#                                 array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + ((i + 1) // iter) * j_move] = [
-#                                     dot1.z + (dot2.z - dot1.z) * ((i + 1) + ((i + 1) // iter)) / (
-#                                                 abs(path[0]) + abs(path[1])),
-#                                     dot1.index + (dot2.index - dot1.index) * ((i + 1) + ((i + 1) // iter)) / (
-#                                                 abs(path[0]) + abs(path[1])), 0]
-#                     else:
-#                         if array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + abs(path[1]) * j_move, 2] == 0:
-#                             array[site[dot1][0] + (i + 1) * i_move, site[dot1][1] + abs(path[1]) * j_move] = [
-#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + abs(path[1])) / (abs(path[0]) + abs(path[1])),
-#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + abs(path[1])) / (
-#                                             abs(path[0]) + abs(path[1])), 0]
-#             else:
-#                 if abs(path[0]) <= 1:
-#                     if array[site[dot1][0], site[dot1][1] + (i + 1) * j_move, 2] == 0:
-#                         array[site[dot1][0], site[dot1][1] + (i + 1) * j_move] = [
-#                             dot1.z + (dot2.z - dot1.z) * (i + 1) / (abs(path[0]) + 1),
-#                             dot1.index + (dot2.index - dot1.index) * (i + 1) / (abs(path[0]) + abs(path[1])), 0]
-#                 else:
-#                     iter = abs(path[1]) // (abs(path[0]))
-#                     # Slope =abs(path[0]) //( abs(path[1])-1)
-#                     remainder = abs(path[1]) % (abs(path[0]))
-#                     if i < abs(path[1]) - remainder:
-#                         if array[site[dot1][0] + (i // iter) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
-#                             array[site[dot1][0] + (i // iter) * i_move, site[dot1][1] + (i + 1) * j_move] = [
-#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + (i // iter)) / (abs(path[0]) + abs(path[1])),
-#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + (i // iter)) / (
-#                                             abs(path[0]) + abs(path[1])), 0]
-#                         if (i + 1) % iter == 0:
-#                             if array[
-#                                 site[dot1][0] + ((i + 1) // iter) * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
-#                                 array[site[dot1][0] + ((i + 1) // iter) * i_move, site[dot1][1] + (i + 1) * j_move] = [
-#                                     dot1.z + (dot2.z - dot1.z) * ((i + 1) + ((i + 1) // iter)) / (
-#                                                 abs(path[0]) + abs(path[1])),
-#                                     dot1.index + (dot2.index - dot1.index) * ((i + 1) + ((i + 1) // iter)) / (
-#                                                 abs(path[0]) + abs(path[1])), 0]
-#                     else:
-#                         if array[site[dot1][0] + path[0] * i_move, site[dot1][1] + (i + 1) * j_move, 2] == 0:
-#                             array[site[dot1][0] + path[0] * i_move, site[dot1][1] + (i + 1) * j_move] = [
-#                                 dot1.z + (dot2.z - dot1.z) * ((i + 1) + abs(path[0])) / (abs(path[0]) + abs(path[1])),
-#                                 dot1.index + (dot2.index - dot1.index) * ((i + 1) + abs(path[0])) / (
-#                                             abs(path[0]) + abs(path[1])), 0]
-
-
 def dots_connection(dot1, dot2, array, site):
-    path = [site[dot2][0]-site[dot1][0], site[dot2][1]-site[dot1][1]]
-    moves_count = abs(path[0])+abs(path[1])-1
-    if moves_count > 0:
-        moves = []
-        for i in range(moves_count):
-            moves.append([int(path[0]*(i+1)/moves_count), int(path[1]*(i+1)/moves_count)])
-        for i in range(len(moves)):
-            if array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1], 2] == 0:
-                # array[site[dot1][0]+moves[i][0], site[dot1][1]+moves[i][1]] = [
-                #     dot1.z+(dot2.z-dot1.z)*(i+1)/(moves_count+1),
-                #     dot1.index+(dot2.index-dot1.index)*(i+1)/(moves_count+1),
-                #     AA_HYDROPATHY_INDEX[dot1.aa]+(
-                #             AA_HYDROPATHY_INDEX[dot2.aa]-AA_HYDROPATHY_INDEX[dot1.aa])*(i+1)/(moves_count+1)]
-                array[site[dot1][0] + moves[i][0], site[dot1][1] + moves[i][1]] = [
-                    dot1.z + (dot2.z - dot1.z) * (i + 1) / (moves_count + 1),
-                    dot1.index + (dot2.index - dot1.index) * (i + 1) / (moves_count + 1),
-                    0]
+    x=site[dot1][0]
+    y=site[dot1][1]
+    x_dis=site[dot2][0] - x
+    y_dis=site[dot2][1] - y
+    total=(abs(x_dis) + abs(y_dis))
+    index=(dot2.index - dot1.index)
+    z_dis=(dot2.z - dot1.z)
+    if x_dis > 0:
+        x_direction = 1
+    else:
+        x_direction = -1
+    if y_dis > 0:
+        y_direction = 1
+    else:
+        y_direction = -1
+
+    moves_count = abs(x_dis) + abs(y_dis) - 2
+    if moves_count >= 0:
+        for i in range(max(abs(x_dis), abs(y_dis))):
+            dis_l=(i + 1)
+            if abs(x_dis) > abs(y_dis):
+                if abs(y_dis) <= 1:
+                    if array[x + dis_l * x_direction, y, 2] == 0:
+                        array[x + dis_l * x_direction, y] = [
+                            dot1.z + z_dis * dis_l / total,
+                            dot1.index + dis_l / total, 0]
+                else:
+                    iter = abs(x_dis) // (abs(y_dis))
+                    # Slope =abs(x_dis) //( abs(y_dis)-1)
+                    remainder = abs(x_dis) % (abs(y_dis))
+                    if i < abs(x_dis) - remainder:
+                        if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
+                            array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [
+                                dot1.z + z_dis * (dis_l + (i // iter)) / total,
+                                dot1.index + (dis_l + (i // iter)) / total, 0]
+                        if dis_l % iter == 0:
+                            if array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction, 2] == 0:
+                                array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction] = [
+                                    dot1.z + z_dis * (dis_l + dis_l // iter) / total,
+                                    dot1.index + (dis_l + dis_l // iter) / total, 0]
+                    else:
+                        if array[x + dis_l * x_direction, y + abs(y_dis) * y_direction, 2] == 0:
+                            array[x + dis_l * x_direction, y + abs(y_dis) * y_direction] = [
+                                dot1.z + z_dis * (dis_l + abs(y_dis)) / total,
+                                dot1.index + (dis_l + abs(y_dis)) / total, 0]
+            else:
+                if abs(x_dis) <= 1:
+                    if array[x, y + dis_l * y_direction, 2] == 0:
+                        array[x, y + dis_l * y_direction] = [
+                            dot1.z + z_dis * dis_l / total,
+                            dot1.index + dis_l / total, 0]
+                else:
+                    iter = abs(y_dis) // (abs(x_dis))
+                    # Slope =abs(x_dis) //( abs(y_dis)-1)
+                    remainder = abs(y_dis) % (abs(x_dis))
+                    if i < abs(y_dis) - remainder:
+                        if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+                            array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [
+                                dot1.z + z_dis * (dis_l + (i // iter)) / total,
+                                dot1.index + (dis_l + (i // iter)) / total, 0]
+                        if dis_l % iter == 0:
+                            if array[
+                                x + (dis_l // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+                                array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction] = [
+                                    dot1.z + z_dis * (dis_l + dis_l // iter) / total,
+                                    dot1.index + (dis_l + dis_l // iter) / total, 0]
+                    else:
+                        if array[x + x_dis * x_direction, y + dis_l * y_direction, 2] == 0:
+                            array[x + x_dis * x_direction, y + dis_l * y_direction] = [
+                                dot1.z + z_dis * (dis_l + abs(x_dis)) / total,
+                                dot1.index + (dis_l + abs(x_dis)) / total, 0]
 
 
 def draw_connection(atoms, array, rec):
     site = {}
     for (x, y) in rec.keys():
         site.update({rec[(x, y)]: [x, y]})
-    for i in range(len(atoms)-1):
-        dots_connection(atoms[i], atoms[i+1], array, site)
+    for i in range(len(atoms) - 1):
+        dots_connection(atoms[i], atoms[i + 1], array, site)
 
 
 def write_log(path):
-    arg_name_list = ['dataset', 'resolution', 'input_type', 'output_type', 'map_range', 'multi_atom',
+    arg_name_list = ['dataset', 'resolution', 'input_type', 'output_type', 'axis_range', 'multi_atom',
                      'move2center', 'redistribute', 'redistribute_rate', 'relative_number', 'draw_connection',
                      'aminoacid_number']
-    arg_list = [args.dataset, args.resolution, args.input_type, args.output_type, args.map_range, args.multi_atom,
+    arg_list = [args.dataset, args.resolution, args.input_type, args.output_type, args.axis_range, args.multi_atom,
                 args.move2center, args.redistribute, args.redistribute_rate, args.relative_number, args.draw_connection,
                 args.aminoacid_number]
     write_list = [time.strftime("%Y%m%d_%H%M", time.localtime())]
