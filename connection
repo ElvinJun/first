@@ -1,0 +1,449 @@
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import gzip
+import sys
+from math import isnan
+import tensorflow as tf
+import pandas as pd
+from multiprocessing import Pool
+import os, time, random
+
+
+class Protein_images(object):
+    def __init__(self, path=os.getcwd(), a=0, protein_len=400, axis_len=64):
+        self.path = path
+        self.a = a
+        self.protein_len = protein_len
+        self.axis_len = axis_len
+
+    def path_global(self):
+        global path_file
+        path_file = os.path.join(self.path, "cif_filtered//")
+        global save_path
+        save_path = os.path.join(self.path, "npy_con//")
+        global csv_path
+        csv_path=os.path.join(self.path,"csv_tf_con//")
+
+    def rotation_axis(self, x, y, z, axis, resolution):
+        c = ((y - x) ** 2 / ((y * resolution * (
+                    x ** 2 + y ** 2 + z ** 2 - 2 * (axis / resolution) ** 2) ** 0.5 / axis - z) ** 2 + (
+                                         x * resolution * (x ** 2 + y ** 2 + z ** 2 - 2 * (
+                                             axis / resolution) ** 2) ** 0.5 / axis - z) ** 2 + (y - x) ** 2)) ** 0.5
+        a = (y * resolution * (x ** 2 + y ** 2 + z ** 2 - 2 * (axis / resolution) ** 2) ** 0.5 / axis - z) / (x - y) * c
+        b = (x * resolution * (x ** 2 + y ** 2 + z ** 2 - 2 * (axis / resolution) ** 2) ** 0.5 / axis - z) / (y - x) * c
+        return [(a, b, c), (-a, -b, -c)]  # 转轴
+
+    def rotation_angle(self, x, y, z, axis, resolution):
+        return math.acos(
+            ((x + y) * axis / resolution + z * (x ** 2 + y ** 2 + z ** 2 - 2 * (axis / resolution) ** 2) ** 0.5) / (
+                        x ** 2 + y ** 2 + z ** 2))  # 转角
+
+    def rotation(self, u, v, w, T, V):  # 原始坐标
+        (a, b, c) = V
+        # 罗德里格旋转公式：
+        Rx = u * math.cos(T) + (b * w - c * v) * math.sin(T) + a * (a * u + b * v + c * w) * (1 - math.cos(T))
+        Ry = v * math.cos(T) + (c * u - a * w) * math.sin(T) + b * (a * u + b * v + c * w) * (1 - math.cos(T))
+        Rz = w * math.cos(T) + (a * v - b * u) * math.sin(T) + c * (a * u + b * v + c * w) * (1 - math.cos(T))
+        return (Rx, Ry, Rz)  # 旋转所得坐标
+
+    def readfile(self, filename):
+        PDB_file = open(filename)
+        PDB_message = PDB_file.readlines()
+        PDB_file.close()
+        return PDB_message
+
+    def extract_PDB(self, PDB_message):
+        atom = []
+        for i in range(len(PDB_message)):
+            if PDB_message[i][:4] == 'ATOM':
+                if PDB_message[i][13:15] == 'CA':
+                    if PDB_message[i][16] != 'B':
+                        atom.append([PDB_message[i][13:16], PDB_message[i][17:20], float(PDB_message[i][30:38]),
+                                     float(PDB_message[i][38:46]), float(PDB_message[i][46:54]), PDB_message[i][77],
+                                     int(PDB_message[i][23:26])])
+        # 提取信息【0：原子，1：氨基酸，2：X坐标，3：Y坐标,4：Z坐标，5：元素，6：残基序列号】
+        return atom
+
+    def extract_cif(self, PDB_message):
+        atom = []
+        for line in PDB_message:
+            line = line.split()
+            atom.append([line[3], line[5], float(line[10]), float(line[11]), float(line[12]), line[2], int(line[8])])
+        # 提取信息【0：原子，1：氨基酸，2：X坐标，3：Y坐标,4：Z坐标，5：元素，6：残基序列号】
+        return atom
+
+
+    def relocate(self, atom, axis, resolution):
+        x_o = (atom[0][2] + atom[-1][2]) / 2
+        y_o = (atom[0][3] + atom[-1][3]) / 2
+        z_o = (atom[0][4] + atom[-1][4]) / 2
+        for i in range(len(atom)):
+            atom[i][2] -= x_o
+            atom[i][3] -= y_o
+            atom[i][4] -= z_o
+        V = self.rotation_axis(atom[0][2], atom[0][3], atom[0][4], axis, resolution)
+        T = self.rotation_angle(atom[0][2], atom[0][3], atom[0][4], axis, resolution)
+        atom_V = []
+        for i in range(2):
+            atom_V.append(self.rotation(atom[0][2], atom[0][3], atom[0][4], T, V[i]))
+        if abs(atom_V[0][0] - axis / resolution) + abs(atom_V[0][1] - axis / resolution) < abs(
+                atom_V[1][0] - axis / resolution) + abs(atom_V[1][1] - axis / resolution):
+            k = 0
+        else:
+            k = 1
+        for i in range(len(atom)):
+            (atom[i][2], atom[i][3], atom[i][4]) = self.rotation(atom[i][2], atom[i][3], atom[i][4], T, V[k])
+            #(atom[i][2], atom[i][3]) = (atom[i][2]+64, atom[i][3]+64/3)
+            #print(atom[i][2], atom[i][3])
+        return atom
+
+    def amino_(self):
+        amino_acid = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+                      'LEU', 'LYS', 'MET', 'PHE','PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL']
+        global amino_acid_number
+        amino_acid_number = {}
+        for i in range(len(amino_acid)):
+            amino_acid_number.update({amino_acid[i]: i * 10 +10})
+
+    def sign(self, x):
+        if x < 0:
+            return -1
+        else:
+            return 1
+
+    def generate_npy(self, axis, resolution):  # 路径 文件名 分辨率 轴长 保存路径
+        if not os.path.exists(csv_path):
+            os.makedirs(csv_path)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        for parent, dirnames, filenames in os.walk(path_file):
+            for filename in filenames:
+                try:
+                    start = time.time()
+                    path_w = os.path.join(path_file, filename)
+                    path_read = os.path.join(parent, filename)
+                    path_tf1 = path_read.replace("cif_filtere", "csv_tf_con")
+                    path_tf = path_tf1.replace("cif", "csv")
+                    # fd=open(path_tf,'a')
+                    atom = self.relocate(self.extract_cif(self.readfile(path_read)), axis, resolution)
+                    atom = self.move_center(atom)
+                    #for i in range(len(atom)):
+                        #(atom[i][4], atom[i][6]) = ((atom[i][4] + 64)* 2 - 1 , atom[i][6] * 255 / (len(atom)+1) )
+                    test = pd.DataFrame(data=atom)
+                    test.to_csv(path_tf, encoding='gbk')
+                    array ,dots_rec = self.arraylize(atom, axis, axis, resolution)
+                    self.draw_connection(atom, array, dots_rec)
+                    filename = filename.replace('.cif', '')
+                    self.save_box(array, filename)
+                    end = time.time()
+                    print('Task %s runs %0.2f seconds.' % (filename, (end - start)))
+                    tf.reset_default_graph()
+                except Exception as e:
+                    print(filename + "debug")
+                    print(e)
+
+    def arraylize(self, atom, x_range, y_range, resolution):
+        array = np.zeros([resolution, resolution, 3], dtype=float, order='C')
+        dots_rec = {}
+        for i in range(len(atom)):
+            x = int(resolution * 0.5 + atom[i][2] * resolution // (2 * x_range))
+            y = int(resolution * 0.5 + atom[i][3] * resolution // (2 * y_range))
+            if array[x, y, 2] == 0:
+                array[x, y] = [atom[i][4], atom[i][6], amino_acid_number.get(atom[i][1])]
+                dots_rec.update({(x, y): i})
+            else:
+                array = self.lattice_battle(array, x_range, y_range, resolution, x, y, atom[dots_rec.get((x, y))],
+                                            atom[i], i, dots_rec)
+        #array[:, :, 1] /= (len(atom) + 1)
+        return array,dots_rec
+
+    def lattice_battle(self, array, x_range, y_range, resolution, x, y, dot1, dot2, dot2_i, dots_rec):
+        dis1_x = dot1[2] * resolution / (2 * x_range) % 1 - 0.5
+        dis1_y = dot1[3] * resolution / (2 * y_range) % 1 - 0.5
+        dis2_x = dot2[2] * resolution / (2 * x_range) % 1 - 0.5
+        dis2_y = dot2[3] * resolution / (2 * y_range) % 1 - 0.5
+        if dis1_x ** 2 + dis1_y ** 2 > dis2_x ** 2 + dis2_y ** 2:
+            # print('%d / %d swap!'%(dot1[6],dot2[6]))
+            array = self.close_neibor(array, x, y, dot1, dis1_x, dis1_y, dots_rec.get((x, y)), dots_rec)
+            array[x, y] = [dot2[4], dot2[6], amino_acid_number.get(dot2[1])]
+            dots_rec.update({(x, y): dot2_i})
+        else:
+            array = self.close_neibor(array, x, y, dot2, dis2_x, dis2_y, dot2_i, dots_rec)
+        return array
+
+    def close_neibor(self, array, x, y, dot, dis_x, dis_y, dot_i, dots_rec):
+        x_step = self.sign(dis_x)
+        y_step = self.sign(dis_y)
+        if abs(dis_x) < abs(dis_y):
+            neibors = [(0, y_step), (x_step, 0), (x_step, y_step), (-x_step, 0), (0, -y_step), (-x_step, y_step),
+                       (x_step, -y_step), (-x_step, -y_step)]
+        else:
+            neibors = [(x_step, 0), (0, y_step), (x_step, y_step), (0, -y_step), (-x_step, 0), (x_step, -y_step),
+                       (-x_step, y_step), (-x_step, -y_step)]
+        step = 1
+        while True:
+            for (i, j) in neibors:
+                try:
+                    if array[x + i * step, y + j * step, 2] == 0:
+                        array[x + i * step, y + j * step] = [dot[4], dot[6], amino_acid_number.get(dot[1])]
+                        dots_rec[x + i * step, y + j * step] = dot_i
+                        # print('dot%d:%d,%d->%d,%d'%(dot[6],x,y,x+i*step,y+j*step))
+                        return array
+                except Exception:
+                    print('dot(%d+%d,%d+%d) is out of the edge' % (x, i * step, y, j * step))
+            # print('%d step neibor of dot%d(%d,%d) is full!'%(step,dot_i,x,y))
+            step += 1
+
+    def save_box(self, box, filename):
+        save_file = open(save_path + filename + '.npy', 'wb')
+        np.save(save_file, box)
+        save_file.close()
+
+    # 梯度下降找中心点
+    def move_center(self, atom):
+        coordinates = []
+        for line in atom:
+            coordinates.append(line[2:5])
+        coordinates = np.array(coordinates)
+        center = tf.Variable(tf.zeros([1, 3]))
+        distances = coordinates - center
+        loss = tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(distances), 1)))
+        optimizer = tf.train.GradientDescentOptimizer(0.5)
+        train = optimizer.minimize(loss)
+        init = tf.global_variables_initializer()
+        sess = tf.Session()
+        sess.run(init)
+        for step in range(1000):
+            sess.run(train)
+        coordinates -= sess.run(center)
+        for i in range(len(atom)):
+            atom[i][2:5] = coordinates[i]
+        return (atom)
+
+    def axis_max(self, atom):
+        x_max, y_max, z_max = abs(atom[0][2]), abs(atom[0][3]), abs(atom[0][4])
+        for i in range(len(atom)):
+            x_max = max(x_max, abs(atom[i][2]))
+            y_max = max(y_max, abs(atom[i][3]))
+            z_max = max(z_max, abs(atom[i][4]))
+        return [x_max, y_max, z_max]
+
+    def axis_max_sta(self, axis, resolution):
+        max_X = []
+        max_Y = []
+        max_Z = []
+        dic_x = {}
+        dic_y = {}
+        dic_z = {}
+        for parent, dirnames, filenames in os.walk(path_file):
+            print(123)
+            for filename in filenames:
+                try:
+                    atom = self.relocate(self.extract_cif(self.readfile(os.path.join(path_file, filename))), axis,
+                                         resolution)
+                except Exception as e:
+                    print(e)
+                    print(filename)
+                max_value = self.axis_max(atom)
+                max_X.append(max_value[0])
+                max_Y.append(max_value[1])
+                max_Z.append(max_value[2])
+                dic_x[filename] = (max_value[0])
+                dic_y[filename] = (max_value[1])
+                dic_z[filename] = (max_value[2])
+        return max_X, max_Y, max_Z, dic_x, dic_y, dic_z
+
+    # 删除轴长过大的
+    def delete_axis(self, axis, resolution):
+        axis_test = pp.axis_max_sta(axis, resolution)
+        for i in range(3):
+            axis_test[i].sort()
+        del_x = []
+        for k in range(3, 6):
+            for key, value in axis_test[k].items():
+                value_int = int(value)
+                if value_int > self.axis_len:
+                    if key not in del_x:
+                        del_x.append(key)
+        print(len(del_x))
+        for j in del_x:
+            path_delete_axis = os.path.join(path_file, j)
+            if os.path.exists(path_delete_axis):
+                os.unlink(path_delete_axis)
+
+                # 删除过长的蛋白质
+
+    def delete_len(self):
+        pdb_len = []
+        dic_x = {}
+        del_x = []
+        for parent, dirnames, filenames in os.walk(path_file):
+            print("youmeou")
+            for f in filenames:
+                path = os.path.join(parent, f)
+                f_read = open(path, 'r')
+                f_lines = f_read.readlines()
+                # pdb_len.append(len(f_lines))
+                dic_x[f] = (len(f_lines))
+        for key, value in dic_x.items():
+            value_int = int(value)
+            if value_int > self.protein_len:
+                if key not in del_x:
+                    del_x.append(key)
+        print(len(del_x))
+        for j in del_x:
+            path_delete_len = os.path.join(path_file, j)
+            if os.path.exists(path_delete_len):
+                os.unlink(path_delete_len)
+
+                ##最大轴值分布可视化
+
+    def abs_dis(self, values, axis, resolution):
+        mark = 0
+        idx = 0
+        dis = []
+        dis_count = []
+        for i in range(1, resolution // 2 + 1):
+            cut_point = i * axis / (resolution // 2)
+            if idx == len(values):
+                dis.append([])
+            else:
+                while values[idx] < cut_point:
+                    idx += 1
+                    if idx == len(values):
+                        dis.append(values[mark:idx])
+                        break
+                else:
+                    dis.append(values[mark:idx])
+                    mark = int(idx)
+        for i in range(resolution // 2):
+            dis_count.append(len(dis[i]))
+        plt.bar(range(resolution // 2), dis_count)
+        plt.show()
+
+    ##轴值分布可视化
+    def vis_val_dis(self, values, axis, resolution):
+        mark = 0
+        idx = 0
+        dis = []
+        dis_count = []
+        axis_length = 2 * axis
+        for i in range(1, resolution + 1):
+            cut_point = (i - resolution / 2) * axis_length / resolution
+            if idx == len(values):
+                dis.append([])
+            else:
+                while values[idx] < cut_point:
+                    idx += 1
+                    if idx == len(values):
+                        dis.append(values[mark:idx])
+                        break
+                else:
+                    dis.append(values[mark:idx])
+                    mark = int(idx)
+        for i in range(resolution):
+            dis_count.append(len(dis[i]))
+        plt.bar(range(resolution), dis_count)
+        plt.show()
+
+    def dots_connection(self, dot1, dot2, j, array, site):
+        x = site[j][0]
+        y = site[j][1]
+        x_dis = site[j+1][0] - x
+        y_dis = site[j+1][1] - y
+        total = (abs(x_dis) + abs(y_dis))
+        index = (dot2[6] - dot1[6])
+        z_dis = (dot2[4] - dot1[4])
+        if x_dis > 0:
+            x_direction = 1
+        else:
+            x_direction = -1
+        if y_dis > 0:
+            y_direction = 1
+        else:
+            y_direction = -1
+
+        moves_count = abs(x_dis) + abs(y_dis) - 2
+        if moves_count >= 0:
+            for i in range(max(abs(x_dis), abs(y_dis))):
+                dis_l = (i + 1)
+                if abs(x_dis) > abs(y_dis):
+                    if abs(y_dis) <= 1:
+                        if array[x + dis_l * x_direction, y, 2] == 0:
+                            array[x + dis_l * x_direction, y] = [
+                                dot1[4] + z_dis * dis_l / total,
+                                dot1[6] + dis_l / total, 0]
+                    else:
+                        iter = abs(x_dis) // (abs(y_dis))
+                        remainder = abs(x_dis) % (abs(y_dis))
+                        if i < abs(x_dis) - remainder:
+                            if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
+                                array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [
+                                    dot1[4] + z_dis * (dis_l + (i // iter)) / total,
+                                    dot1[6] + (dis_l + (i // iter)) / total, 0]
+                            if dis_l % iter == 0:
+                                if array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction, 2] == 0:
+                                    array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction] = [
+                                        dot1[4] + z_dis * (dis_l + dis_l // iter) / total,
+                                        dot1[6] + (dis_l + dis_l // iter) / total, 0]
+                        else:
+                            if array[x + dis_l * x_direction, y + abs(y_dis) * y_direction, 2] == 0:
+                                array[x + dis_l * x_direction, y + abs(y_dis) * y_direction] = [
+                                    dot1[4] + z_dis * (dis_l + abs(y_dis)) / total,
+                                    dot1[6] + (dis_l + abs(y_dis)) / total, 0]
+                else:
+                    if abs(x_dis) <= 1:
+                        if array[x, y + dis_l * y_direction, 2] == 0:
+                            array[x, y + dis_l * y_direction] = [
+                                dot1[4] + z_dis * dis_l / total,
+                                dot1[6] + dis_l / total, 0]
+                    else:
+                        iter = abs(y_dis) // (abs(x_dis))
+                        remainder = abs(y_dis) % (abs(x_dis))
+                        if i < abs(y_dis) - remainder:
+                            if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+                                array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [
+                                    dot1[4] + z_dis * (dis_l + (i // iter)) / total,
+                                    dot1[6] + (dis_l + (i // iter)) / total, 0]
+                            if dis_l % iter == 0:
+                                if array[
+                                    x + (dis_l // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+                                    array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction] = [
+                                        dot1[4] + z_dis * (dis_l + dis_l // iter) / total,
+                                        dot1[6] + (dis_l + dis_l // iter) / total, 0]
+                        else:
+                            if array[x +abs(x_dis) * x_direction, y + dis_l * y_direction, 2] == 0:
+                                array[x + abs(x_dis) * x_direction, y + dis_l * y_direction] = [
+                                    dot1[4] + z_dis * (dis_l + abs(x_dis)) / total,
+                                    dot1[6] + (dis_l + abs(x_dis)) / total, 0]
+
+    def draw_connection(self,atoms, array, rec):
+        site = {}
+        for (x, y) in rec.keys():
+            site.update({rec[(x, y)]: [x, y]})
+        for i in range(len(atoms) - 1):
+            self.dots_connection(atoms[i], atoms[i + 1], i , array, site)
+
+
+pp = Protein_images()
+pp.amino_()
+pp.path_global()
+pp.generate_npy(64, 1024)
+# pp.delete_axis(64,128)
+# pp.delete_len()
+# pp.generate_npy(64,256)
+
+# if __name__=='__main__':
+#   print ('Parent process %s.' % os.getpid())
+#  p = Pool(60)
+# for parent,dirnames,filenames in os.walk(path_file):
+#        for filename in filenames:
+#           p.apply_async(pp.generate_npy(64,256,filename))
+#          tf.reset_default_graph()
+#         #self.move_center()
+# print ('Waiting for all subprocesses done...')
+# p.close()
+# p.join()
+# print ('All subprocesses done.')
