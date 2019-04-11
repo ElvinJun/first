@@ -397,14 +397,14 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def dots_connection(dot1, dot2, array, site):
-    x=site[dot1][0]
-    y=site[dot1][1]
-    x_dis=site[dot2][0] - x
-    y_dis=site[dot2][1] - y
-    total=(abs(x_dis) + abs(y_dis))
-    index=(dot2.index - dot1.index)
-    z_dis=(dot2.z - dot1.z)
+def dots_connection(self, dot1, dot2, j, array, site):
+    x = site[j][0]
+    y = site[j][1]
+    x_dis = site[j + 1][0] - x
+    y_dis = site[j + 1][1] - y
+    total = (abs(x_dis) + abs(y_dis))
+    index = (dot2[6] - dot1[6])
+    z_dis = (dot2[4] - dot1[4])
     if x_dis > 0:
         x_direction = 1
     else:
@@ -417,58 +417,60 @@ def dots_connection(dot1, dot2, array, site):
     moves_count = abs(x_dis) + abs(y_dis) - 2
     if moves_count >= 0:
         for i in range(max(abs(x_dis), abs(y_dis))):
-            dis_l=(i + 1)
+            dis_l = (i + 1)
             if abs(x_dis) > abs(y_dis):
                 if abs(y_dis) <= 1:
                     if array[x + dis_l * x_direction, y, 2] == 0:
                         array[x + dis_l * x_direction, y] = [
-                            dot1.z + z_dis * dis_l / total,
-                            dot1.index + dis_l / total, 0]
+                            dot1[4] + z_dis * dis_l / total,
+                            dot1[6] + dis_l / total, 0]
                 else:
                     iter = abs(x_dis) // (abs(y_dis))
-                    # Slope =abs(x_dis) //( abs(y_dis)-1)
                     remainder = abs(x_dis) % (abs(y_dis))
                     if i < abs(x_dis) - remainder:
                         if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
                             array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [
-                                dot1.z + z_dis * (dis_l + (i // iter)) / total,
-                                dot1.index + (dis_l + (i // iter)) / total, 0]
+                                dot1[4] + z_dis * (dis_l + (i // iter)) / total,
+                                dot1[6] + (dis_l + (i // iter)) / total, 0]
                         if dis_l % iter == 0:
                             if array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction, 2] == 0:
                                 array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction] = [
-                                    dot1.z + z_dis * (dis_l + dis_l // iter) / total,
-                                    dot1.index + (dis_l + dis_l // iter) / total, 0]
+                                    dot1[4] + z_dis * (dis_l + dis_l // iter) / total,
+                                    dot1[6] + (dis_l + dis_l // iter) / total, 0]
+                            if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 1] != 0:
+                                array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [0, 0, 0]
                     else:
                         if array[x + dis_l * x_direction, y + abs(y_dis) * y_direction, 2] == 0:
                             array[x + dis_l * x_direction, y + abs(y_dis) * y_direction] = [
-                                dot1.z + z_dis * (dis_l + abs(y_dis)) / total,
-                                dot1.index + (dis_l + abs(y_dis)) / total, 0]
+                                dot1[4] + z_dis * (dis_l + abs(y_dis)) / total,
+                                dot1[6] + (dis_l + abs(y_dis)) / total, 0]
             else:
                 if abs(x_dis) <= 1:
                     if array[x, y + dis_l * y_direction, 2] == 0:
                         array[x, y + dis_l * y_direction] = [
-                            dot1.z + z_dis * dis_l / total,
-                            dot1.index + dis_l / total, 0]
+                            dot1[4] + z_dis * dis_l / total,
+                            dot1[6] + dis_l / total, 0]
                 else:
                     iter = abs(y_dis) // (abs(x_dis))
-                    # Slope =abs(x_dis) //( abs(y_dis)-1)
                     remainder = abs(y_dis) % (abs(x_dis))
                     if i < abs(y_dis) - remainder:
                         if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
                             array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [
-                                dot1.z + z_dis * (dis_l + (i // iter)) / total,
-                                dot1.index + (dis_l + (i // iter)) / total, 0]
+                                dot1[4] + z_dis * (dis_l + (i // iter)) / total,
+                                dot1[6] + (dis_l + (i // iter)) / total, 0]
                         if dis_l % iter == 0:
                             if array[
                                 x + (dis_l // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
                                 array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction] = [
-                                    dot1.z + z_dis * (dis_l + dis_l // iter) / total,
-                                    dot1.index + (dis_l + dis_l // iter) / total, 0]
+                                    dot1[4] + z_dis * (dis_l + dis_l // iter) / total,
+                                    dot1[6] + (dis_l + dis_l // iter) / total, 0]
+                            if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 1] != 0:
+                                array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [0, 0, 0]
                     else:
-                        if array[x + x_dis * x_direction, y + dis_l * y_direction, 2] == 0:
-                            array[x + x_dis * x_direction, y + dis_l * y_direction] = [
-                                dot1.z + z_dis * (dis_l + abs(x_dis)) / total,
-                                dot1.index + (dis_l + abs(x_dis)) / total, 0]
+                        if array[x + abs(x_dis) * x_direction, y + dis_l * y_direction, 2] == 0:
+                            array[x + abs(x_dis) * x_direction, y + dis_l * y_direction] = [
+                                dot1[4] + z_dis * (dis_l + abs(x_dis)) / total,
+                                dot1[6] + (dis_l + abs(x_dis)) / total, 0]
 
 
 def draw_connection(atoms, array, rec):
@@ -505,7 +507,7 @@ def process():
             atoms_dic = {}
             xs = []
             ys = []
-            for filename in os.listdir(input_folder):
+            for filename in os.listdir(input_folder):#报错点
                 atoms = relocate(extract_message(readfile(filename, input_folder), args.input_type))
                 if args.move2center:
                     atoms = move2center(atoms)
