@@ -9,26 +9,27 @@ import pathlib
 from scipy.stats import norm as nm
 from multiprocessing import Pool
 import argparse
+import matplotlib.image
 
 parser = argparse.ArgumentParser(description='manual to this script')
 parser.add_argument('--resolution', type=int, default='512',
                     help='output resolution')
-parser.add_argument('--dataset_path', type=str, default='D:\module\pdb_screening',
+parser.add_argument('--dataset_path', type=str, default='D:\protein_structure_prediction\data\dataset',
                     help='path of dataset')
-parser.add_argument('--output_path', type=str, default='D:\module\pdb_screening',
+parser.add_argument('--output_path', type=str, default='D:\protein_structure_prediction\data\dataset\processed_data',
                     help='path of output')
-parser.add_argument('--dataset', type=str, default='cif_filtered',
-                    help='name of dataset folder')
+parser.add_argument('--dataset', type=str, default='bc-30-1_CA',
+                    help='name of dataset folder, bc-30-1_CA|bc-30-1_chains|cif_filtered')
 parser.add_argument('--input_type', type=str, default='cif',
-                    help='type of input file')
+                    help='type of input file, cif|pdb')
 parser.add_argument('--output_type', type=str, default='image',
-                    help='image or distance_map, default: images')
-parser.add_argument('--axis_range', type=int, default='64',
-                    help='map range of structures, default: -42 to 42')
+                    help='image or distance_map, images|distance_map')
+parser.add_argument('--axis_range', type=int, default='42',
+                    help='map range of structures, 42|64')
 parser.add_argument('--multi_process', type=bool, default=False,
-                    help='multi_process or not')
+                    help='multi process or not')
 parser.add_argument('--multi_atom', type=bool, default=False,
-                    help='input with 4 atoms and not just CA only')
+                    help='input all backbone atoms or CA only')
 parser.add_argument('--move2center', type=bool, default=True,
                     help='relocate the center of proteins to the center of coordinate system')
 parser.add_argument('--redistribute', type=bool, default=False,
@@ -37,8 +38,8 @@ parser.add_argument('--relative_number', type=bool, default=True,
                     help='mark dots with relative serial number')
 parser.add_argument('--draw_connection', type=bool, default=True,
                     help='draw dots connection or not')
-parser.add_argument('--aminoacid_number', type=bool, default=False,
-                    help='mark aminoacid with numbers 20-39 or 1')
+parser.add_argument('--aminoacid_message', type=bool, default=False,
+                    help='mark amino acid with hydropathicity, bulkiness and flexibility')
 parser.add_argument('--redistribute_rate', type=float, default='1.4',
                     help='coefficient of redistribution amplitude')
 args = parser.parse_args()
@@ -51,7 +52,7 @@ AMINO_ACIDS = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS',
                'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
                'LEU', 'LYS', 'MET', 'PHE', 'PRO',
                'SER', 'THR', 'TRP', 'TYR', 'VAL']
-AA_HYDROPATHY_INDEX = {
+AA_HYDROPATHICITY_INDEX = {
     'ARG': -4.5,
     'LYS': -3.9,
     'ASN': -3.5,
@@ -73,14 +74,60 @@ AA_HYDROPATHY_INDEX = {
     'VAL': 4.2,
     'ILE': 4.5,
 }
+AA_BULKINESS_INDEX = {
+    'ARG': 14.28,
+    'LYS': 15.71,
+    'ASN': 12.82,
+    'ASP': 11.68,
+    'GLN': 14.45,
+    'GLU': 13.57,
+    'HIS': 13.69,
+    'PRO': 17.43,
+    'TYR': 18.03,
+    'TRP': 21.67,
+    'SER': 9.47,
+    'THR': 15.77,
+    'GLY': 3.4,
+    'ALA': 11.5,
+    'MET': 16.25,
+    'CYS': 13.46,
+    'PHE': 19.8,
+    'LEU': 21.4,
+    'VAL': 21.57,
+    'ILE': 21.4,
+}
+AA_FLEXIBILITY_INDEX = {
+    'ARG': 2.6,
+    'LYS': 1.9,
+    'ASN': 14.,
+    'ASP': 12.,
+    'GLN': 4.8,
+    'GLU': 5.4,
+    'HIS': 4.,
+    'PRO': 0.05,
+    'TYR': 0.05,
+    'TRP': 0.05,
+    'SER': 19,
+    'THR': 9.3,
+    'GLY': 23.,
+    'ALA': 14.,
+    'MET': 0.05,
+    'CYS': 0.05,
+    'PHE': 7.5,
+    'LEU': 5.1,
+    'VAL': 2.6,
+    'ILE': 1.6,
+}
 AMINO_ACID_NUMBERS = {}
-if args.aminoacid_number:
-    for aa in range(len(AMINO_ACIDS)):
-        AMINO_ACID_NUMBERS.update({AMINO_ACIDS[aa]: aa+20.5})
+if args.aminoacid_message:
+    pass
+    # for aa in range(len(AMINO_ACIDS)):
+    #
 else:
-    # AMINO_ACID_NUMBERS = AA_HYDROPATHY_INDEX
+    # AMINO_ACID_NUMBERS = AA_HYDROPATHICITY_INDEX
     for aa in AMINO_ACIDS:
-        AMINO_ACID_NUMBERS.update({aa: AA_HYDROPATHY_INDEX[aa]/4.5})
+        AMINO_ACID_NUMBERS.update({aa: 1.})
+        # AMINO_ACID_NUMBERS.update({aa: AA_HYDROPATHICITY_INDEX[aa] / 4.5})
 
 
 class Atom(object):
@@ -397,79 +444,132 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def dots_connection(dot1, dot2, array, site):
-    x=site[dot1][0]
-    y=site[dot1][1]
-    x_dis=site[dot2][0] - x
-    y_dis=site[dot2][1] - y
-    #total=(abs(x_dis) + abs(y_dis))
-    #index=(dot2.index - dot1.index)
-    z_dis=(dot2.z - dot1.z)
-    if x_dis > 0:
-        x_direction = 1
-    else:
-        x_direction = -1
-    if y_dis > 0:
-        y_direction = 1
-    else:
-        y_direction = -1
+def draw_dot(x, y, dot1, z_add, idx_add, array):
+    if array[x, y, 2] == 0:
+        array[x, y] = [dot1.z + z_add, dot1.index + idx_add, 0]
 
-    moves_count = abs(x_dis) + abs(y_dis) - 2
-    if moves_count >= 0:
-        for i in range(max(abs(x_dis), abs(y_dis))):
-            dis_l=(i + 1)
-            if abs(x_dis) > abs(y_dis):
-                if abs(y_dis) <= 1:
-                    if array[x + dis_l * x_direction, y, 2] == 0:
-                        array[x + dis_l * x_direction, y] = [
-                            dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-                            dot1.index + dis_l/(abs(x_dis)+1), 0]
+
+def dots_connection(dot1, dot2, array, site):
+    x = site[dot1][0]
+    y = site[dot1][1]
+    x_dir = sign(site[dot2][0] - x)
+    y_dir = sign(site[dot2][1] - y)
+    x_dis = abs(site[dot2][0] - x)
+    y_dis = abs(site[dot2][1] - y)
+    # total=(abs(x_dis) + abs(y_dis))
+    # index=(dot2.index - dot1.index)
+    z_dis = dot2.z - dot1.z
+
+    if abs(x_dis) + abs(y_dis) >= 2:
+        for i in range(max(x_dis, y_dis)):
+            dis_l = (i + 1)
+            if x_dis > y_dis:
+                if y_dis <= 1:
+                    draw_dot(x + dis_l * x_dir, y, dot1, z_dis * dis_l/(x_dis+1), dis_l/(x_dis+1), array)
                 else:
-                    iter = abs(x_dis) // (abs(y_dis))
-                    remainder = abs(x_dis) % (abs(y_dis))
-                    if i < abs(x_dis) - remainder:
-                        if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
-                            array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [
-                                dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-                                dot1.index + dis_l/(abs(x_dis)+1), 0]
+                    iter = x_dis // y_dis
+                    remainder = x_dis % y_dis
+                    if i < x_dis - remainder:
+                        draw_dot(x + dis_l * x_dir, y + (i // iter) * y_dir, dot1,
+                                 z_dis * dis_l/(x_dis+1), dis_l/(x_dis+1), array)
                         if dis_l % iter == 0:
-                            if array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction, 2] == 0:
-                                array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction] = [
-                                    dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-                                    dot1.index + dis_l/(abs(x_dis)+1), 0]
-                            if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 1] != 0:
-                                array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [0, 0, 0]
+                            draw_dot(x + dis_l * x_dir, y + (i // iter) * y_dir, dot1,
+                                     z_dis * dis_l / (x_dis + 1), dis_l / (x_dis + 1), array)
+                            if array[x + dis_l * x_dir, y + (i // iter) * y_dir, 1] != 0 and \
+                                    array[x + dis_l * x_dir, y + (i // iter) * y_dir, 2] == 0:
+                                array[x + dis_l * x_dir, y + (i // iter) * y_dir] = [0, 0, 0]
                     else:
-                        if array[x + dis_l * x_direction, y + abs(y_dis) * y_direction, 2] == 0:
-                            array[x + dis_l * x_direction, y + abs(y_dis) * y_direction] = [
-                                dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-                                dot1.index + dis_l/(abs(x_dis)+1), 0]
+                        draw_dot(x + dis_l * x_dir, site[dot2][1], dot1,
+                                 z_dis * dis_l / (x_dis + 1), dis_l / (x_dis + 1), array)
             else:
-                if abs(x_dis) <= 1:
-                    if array[x, y + dis_l * y_direction, 2] == 0:
-                        array[x, y + dis_l * y_direction] = [
-                            dot1.z + z_dis * dis_l / (abs(y_dis)+1),
-                            dot1.index + dis_l / (abs(y_dis)+1), 0]
+                if x_dis <= 1:
+                    draw_dot(x, y + dis_l * y_dir, dot1, z_dis * dis_l / (x_dis + 1), dis_l / (x_dis + 1), array)
                 else:
-                    iter = abs(y_dis) // (abs(x_dis))
-                    remainder = abs(y_dis) % (abs(x_dis))
-                    if i < abs(y_dis) - remainder:
-                        if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
-                            array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [
-                                dot1.z + z_dis * dis_l/(abs(y_dis)+1),
-                                dot1.index + dis_l/(abs(y_dis)+1), 0]
+                    iter = y_dis // x_dis
+                    remainder = y_dis % x_dis
+                    if i < y_dis - remainder:
+                        draw_dot(x + (i // iter) * x_dir, y + dis_l * y_dir, dot1,
+                                 z_dis * dis_l / (y_dis + 1), dis_l / (y_dis + 1), array)
                         if dis_l % iter == 0:
-                            if array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
-                                array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction] = [
-                                    dot1.z + z_dis * dis_l/(abs(y_dis)+1),
-                                    dot1.index + dis_l/(abs(y_dis)+1), 0]
-                            if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 1] != 0:
-                                array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [0, 0, 0]
+                            draw_dot(x + (i // iter) * x_dir, y + dis_l * y_dir, dot1,
+                                     z_dis * dis_l / (y_dis + 1), dis_l / (y_dis + 1), array)
+                            if array[x + (i // iter) * x_dir, y + dis_l * y_dir, 1] != 0 and \
+                                    array[x + (i // iter) * x_dir, y + dis_l * y_dir, 2] == 0:
+                                array[x + (i // iter) * x_dir, y + dis_l * y_dir] = [0, 0, 0]
                     else:
-                        if array[x + abs(x_dis) * x_direction, y + dis_l * y_direction, 2] == 0:
-                            array[x + abs(x_dis) * x_direction, y + dis_l * y_direction] = [
-                                dot1.z + z_dis * dis_l/(abs(y_dis)+1),
-                                dot1.index + dis_l/(abs(y_dis)+1), 0]
+                        draw_dot(x + site[dot2][0], y + dis_l * y_dir, dot1,
+                                 z_dis * dis_l / (y_dis + 1), dis_l / (y_dis + 1), array)
+
+# def dots_connection(dot1, dot2, array, site):
+#     x = site[dot1][0]
+#     y = site[dot1][1]
+#     x_dis = site[dot2][0] - x
+#     y_dis = site[dot2][1] - y
+#     # total=(abs(x_dis) + abs(y_dis))
+#     # index=(dot2.index - dot1.index)
+#     z_dis = (dot2.z - dot1.z)
+#
+#     x_direction = sign(x_dis)
+#     y_direction = sign(y_dis)
+#
+#     moves_count = abs(x_dis) + abs(y_dis) - 2
+#     if moves_count >= 0:
+#         for i in range(max(abs(x_dis), abs(y_dis))):
+#             dis_l = (i + 1)
+#             if abs(x_dis) > abs(y_dis):
+#                 if abs(y_dis) <= 1:
+#                     if array[x + dis_l * x_direction, y, 2] == 0:
+#                         array[x + dis_l * x_direction, y] = [
+#                             dot1.z + z_dis * dis_l/(abs(x_dis)+1),
+#                             dot1.index + dis_l/(abs(x_dis)+1), 0]
+#                 else:
+#                     iter = abs(x_dis) // (abs(y_dis))
+#                     remainder = abs(x_dis) % (abs(y_dis))
+#                     if i < abs(x_dis) - remainder:
+#                         if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
+#                             array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [
+#                                 dot1.z + z_dis * dis_l/(abs(x_dis)+1),
+#                                 dot1.index + dis_l/(abs(x_dis)+1), 0]
+#                         if dis_l % iter == 0:
+#                             if array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction, 2] == 0:
+#                                 array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction] = [
+#                                     dot1.z + z_dis * dis_l/(abs(x_dis)+1),
+#                                     dot1.index + dis_l/(abs(x_dis)+1), 0]
+#                             if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 1] != 0 and \
+#                                     array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
+#                                 array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [0, 0, 0]
+#                     else:
+#                         if array[x + dis_l * x_direction, y + abs(y_dis) * y_direction, 2] == 0:
+#                             array[x + dis_l * x_direction, y + abs(y_dis) * y_direction] = [
+#                                 dot1.z + z_dis * dis_l/(abs(x_dis)+1),
+#                                 dot1.index + dis_l/(abs(x_dis)+1), 0]
+#             else:
+#                 if abs(x_dis) <= 1:
+#                     if array[x, y + dis_l * y_direction, 2] == 0:
+#                         array[x, y + dis_l * y_direction] = [
+#                             dot1.z + z_dis * dis_l / (abs(y_dis)+1),
+#                             dot1.index + dis_l / (abs(y_dis)+1), 0]
+#                 else:
+#                     iter = abs(y_dis) // (abs(x_dis))
+#                     remainder = abs(y_dis) % (abs(x_dis))
+#                     if i < abs(y_dis) - remainder:
+#                         if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+#                             array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [
+#                                 dot1.z + z_dis * dis_l/(abs(y_dis)+1),
+#                                 dot1.index + dis_l/(abs(y_dis)+1), 0]
+#                         if dis_l % iter == 0:
+#                             if array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+#                                 array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction] = [
+#                                     dot1.z + z_dis * dis_l/(abs(y_dis)+1),
+#                                     dot1.index + dis_l/(abs(y_dis)+1), 0]
+#                             if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 1] != 0 and \
+#                                     array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
+#                                 array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [0, 0, 0]
+#                     else:
+#                         if array[x + abs(x_dis) * x_direction, y + dis_l * y_direction, 2] == 0:
+#                             array[x + abs(x_dis) * x_direction, y + dis_l * y_direction] = [
+#                                 dot1.z + z_dis * dis_l/(abs(y_dis)+1),
+#                                 dot1.index + dis_l/(abs(y_dis)+1), 0]
 
 
 def draw_connection(atoms, array, rec):
@@ -501,12 +601,13 @@ def process():
     output_dir = args.output_path + '\\' + args.dataset + '\\' + time.strftime("%Y%m%d_%H%M", time.localtime())
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
     write_log(log_dir)
+    num = 0
     if args.output_type == 'image':
         if args.redistribute:
             atoms_dic = {}
             xs = []
             ys = []
-            for filename in os.listdir(input_folder):#报错点
+            for filename in os.listdir(input_folder):
                 atoms = relocate(extract_message(readfile(filename, input_folder), args.input_type))
                 if args.move2center:
                     atoms = move2center(atoms)
@@ -529,7 +630,10 @@ def process():
                     array[:, :, 1] /= (len(atoms) + 1)
                 output_name = filename.replace('.cif', '.npy')
                 np.save(output_dir + '\\' + output_name, array)
-                # break
+                matplotlib.image.imsave(output_dir + '\\' + output_name.replace('.npy', '.png'), array)
+                num += 1
+                if num == 10:
+                    break
     elif args.output_type == 'distance_map':
         if args.multi_atom:
             for filename in os.listdir(input_folder):
