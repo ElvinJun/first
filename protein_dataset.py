@@ -444,132 +444,38 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def draw_dot(x, y, dot1, z_add, idx_add, array):
+def draw_dot(x, y, dot1,z_add,idx_add, array):
     if array[x, y, 2] == 0:
         array[x, y] = [dot1.z + z_add, dot1.index + idx_add, 0]
-
 
 def dots_connection(dot1, dot2, array, site):
     x = site[dot1][0]
     y = site[dot1][1]
-    x_dir = sign(site[dot2][0] - x)
-    y_dir = sign(site[dot2][1] - y)
-    x_dis = abs(site[dot2][0] - x)
-    y_dis = abs(site[dot2][1] - y)
-    # total=(abs(x_dis) + abs(y_dis))
-    # index=(dot2.index - dot1.index)
-    z_dis = dot2.z - dot1.z
-
-    if abs(x_dis) + abs(y_dis) >= 2:
-        for i in range(max(x_dis, y_dis)):
-            dis_l = (i + 1)
-            if x_dis > y_dis:
-                if y_dis <= 1:
-                    draw_dot(x + dis_l * x_dir, y, dot1, z_dis * dis_l/(x_dis+1), dis_l/(x_dis+1), array)
+    z_s = dot2.z - dot1.z
+    x_r = sign(site[dot2][0] - x)
+    y_r = sign(site[dot2][1] - y)
+    x_s = abs(site[dot2][0] - x)
+    y_s = abs(site[dot2][1] - y)
+    dis_c = max(x_s , y_s)+1
+    if x_s + y_s  > 2:
+        for i in range(max(x_s, y_s)):
+            l = (i + 1)
+            if min(x_s, y_s) <= 1:
+                if x_s > y_s:
+                    draw_dot(x + l*x_r, y, dot1, z_s*l/dis_c, l/dis_c, array)
                 else:
-                    iter = x_dis // y_dis
-                    remainder = x_dis % y_dis
-                    if i < x_dis - remainder:
-                        draw_dot(x + dis_l * x_dir, y + (i // iter) * y_dir, dot1,
-                                 z_dis * dis_l/(x_dis+1), dis_l/(x_dis+1), array)
-                        if dis_l % iter == 0:
-                            draw_dot(x + dis_l * x_dir, y + (i // iter) * y_dir, dot1,
-                                     z_dis * dis_l / (x_dis + 1), dis_l / (x_dis + 1), array)
-                            if array[x + dis_l * x_dir, y + (i // iter) * y_dir, 1] != 0 and \
-                                    array[x + dis_l * x_dir, y + (i // iter) * y_dir, 2] == 0:
-                                array[x + dis_l * x_dir, y + (i // iter) * y_dir] = [0, 0, 0]
-                    else:
-                        draw_dot(x + dis_l * x_dir, site[dot2][1], dot1,
-                                 z_dis * dis_l / (x_dis + 1), dis_l / (x_dis + 1), array)
+                    draw_dot(x, y + l*y_r, dot1, z_s*l/dis_c, l/dis_c, array)
             else:
-                if x_dis <= 1:
-                    draw_dot(x, y + dis_l * y_dir, dot1, z_dis * dis_l / (x_dis + 1), dis_l / (x_dis + 1), array)
+                t = max(x_s, y_s) // min(x_s, y_s)
+                remainder = max(x_s, y_s) % min(x_s, y_s)
+                if x_s > y_s:
+                    j = [l,i//t,l,y_s]
                 else:
-                    iter = y_dis // x_dis
-                    remainder = y_dis % x_dis
-                    if i < y_dis - remainder:
-                        draw_dot(x + (i // iter) * x_dir, y + dis_l * y_dir, dot1,
-                                 z_dis * dis_l / (y_dis + 1), dis_l / (y_dis + 1), array)
-                        if dis_l % iter == 0:
-                            draw_dot(x + (i // iter) * x_dir, y + dis_l * y_dir, dot1,
-                                     z_dis * dis_l / (y_dis + 1), dis_l / (y_dis + 1), array)
-                            if array[x + (i // iter) * x_dir, y + dis_l * y_dir, 1] != 0 and \
-                                    array[x + (i // iter) * x_dir, y + dis_l * y_dir, 2] == 0:
-                                array[x + (i // iter) * x_dir, y + dis_l * y_dir] = [0, 0, 0]
-                    else:
-                        draw_dot(x + site[dot2][0], y + dis_l * y_dir, dot1,
-                                 z_dis * dis_l / (y_dis + 1), dis_l / (y_dis + 1), array)
-
-# def dots_connection(dot1, dot2, array, site):
-#     x = site[dot1][0]
-#     y = site[dot1][1]
-#     x_dis = site[dot2][0] - x
-#     y_dis = site[dot2][1] - y
-#     # total=(abs(x_dis) + abs(y_dis))
-#     # index=(dot2.index - dot1.index)
-#     z_dis = (dot2.z - dot1.z)
-#
-#     x_direction = sign(x_dis)
-#     y_direction = sign(y_dis)
-#
-#     moves_count = abs(x_dis) + abs(y_dis) - 2
-#     if moves_count >= 0:
-#         for i in range(max(abs(x_dis), abs(y_dis))):
-#             dis_l = (i + 1)
-#             if abs(x_dis) > abs(y_dis):
-#                 if abs(y_dis) <= 1:
-#                     if array[x + dis_l * x_direction, y, 2] == 0:
-#                         array[x + dis_l * x_direction, y] = [
-#                             dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-#                             dot1.index + dis_l/(abs(x_dis)+1), 0]
-#                 else:
-#                     iter = abs(x_dis) // (abs(y_dis))
-#                     remainder = abs(x_dis) % (abs(y_dis))
-#                     if i < abs(x_dis) - remainder:
-#                         if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
-#                             array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [
-#                                 dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-#                                 dot1.index + dis_l/(abs(x_dis)+1), 0]
-#                         if dis_l % iter == 0:
-#                             if array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction, 2] == 0:
-#                                 array[x + dis_l * x_direction, y + (dis_l // iter) * y_direction] = [
-#                                     dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-#                                     dot1.index + dis_l/(abs(x_dis)+1), 0]
-#                             if array[x + dis_l * x_direction, y + (i // iter) * y_direction, 1] != 0 and \
-#                                     array[x + dis_l * x_direction, y + (i // iter) * y_direction, 2] == 0:
-#                                 array[x + dis_l * x_direction, y + (i // iter) * y_direction] = [0, 0, 0]
-#                     else:
-#                         if array[x + dis_l * x_direction, y + abs(y_dis) * y_direction, 2] == 0:
-#                             array[x + dis_l * x_direction, y + abs(y_dis) * y_direction] = [
-#                                 dot1.z + z_dis * dis_l/(abs(x_dis)+1),
-#                                 dot1.index + dis_l/(abs(x_dis)+1), 0]
-#             else:
-#                 if abs(x_dis) <= 1:
-#                     if array[x, y + dis_l * y_direction, 2] == 0:
-#                         array[x, y + dis_l * y_direction] = [
-#                             dot1.z + z_dis * dis_l / (abs(y_dis)+1),
-#                             dot1.index + dis_l / (abs(y_dis)+1), 0]
-#                 else:
-#                     iter = abs(y_dis) // (abs(x_dis))
-#                     remainder = abs(y_dis) % (abs(x_dis))
-#                     if i < abs(y_dis) - remainder:
-#                         if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
-#                             array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [
-#                                 dot1.z + z_dis * dis_l/(abs(y_dis)+1),
-#                                 dot1.index + dis_l/(abs(y_dis)+1), 0]
-#                         if dis_l % iter == 0:
-#                             if array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
-#                                 array[x + (dis_l // iter) * x_direction, y + dis_l * y_direction] = [
-#                                     dot1.z + z_dis * dis_l/(abs(y_dis)+1),
-#                                     dot1.index + dis_l/(abs(y_dis)+1), 0]
-#                             if array[x + (i // iter) * x_direction, y + dis_l * y_direction, 1] != 0 and \
-#                                     array[x + (i // iter) * x_direction, y + dis_l * y_direction, 2] == 0:
-#                                 array[x + (i // iter) * x_direction, y + dis_l * y_direction] = [0, 0, 0]
-#                     else:
-#                         if array[x + abs(x_dis) * x_direction, y + dis_l * y_direction, 2] == 0:
-#                             array[x + abs(x_dis) * x_direction, y + dis_l * y_direction] = [
-#                                 dot1.z + z_dis * dis_l/(abs(y_dis)+1),
-#                                 dot1.index + dis_l/(abs(y_dis)+1), 0]
+                    j = [i//t,l,x_s,l]
+                if i < max(x_s, y_s) - remainder:
+                    draw_dot(x + j[0] * x_r, y + j[1] * y_r, dot1, z_s*l/dis_c, l/dis_c, array)
+                else:
+                    draw_dot(x + j[2] * x_r, y + j[3] * y_r, dot1, z_s*l/dis_c, l/dis_c, array)
 
 
 def draw_connection(atoms, array, rec):
