@@ -38,8 +38,8 @@ parser.add_argument('--relative_number', type=bool, default=True,
                     help='mark dots with relative serial number')
 parser.add_argument('--draw_connection', type=bool, default=True,
                     help='draw dots connection or not')
-parser.add_argument('--aminoacid_message', type=bool, default=False,
-                    help='mark amino acid with hydropathicity, bulkiness and flexibility')
+parser.add_argument('--aminoacid_message', type=bool, default=True,
+                    help='mark amino acid with hydropathicity, bulkiness and flexibility or 1.')
 parser.add_argument('--redistribute_rate', type=float, default='1.4',
                     help='coefficient of redistribution amplitude')
 args = parser.parse_args()
@@ -107,7 +107,7 @@ AA_FLEXIBILITY_INDEX = {
     'PRO': 0.05,
     'TYR': 0.05,
     'TRP': 0.05,
-    'SER': 19,
+    'SER': 19.,
     'THR': 9.3,
     'GLY': 23.,
     'ALA': 14.,
@@ -120,14 +120,14 @@ AA_FLEXIBILITY_INDEX = {
 }
 AMINO_ACID_NUMBERS = {}
 if args.aminoacid_message:
-    pass
-    # for aa in range(len(AMINO_ACIDS)):
-    #
-else:
-    # AMINO_ACID_NUMBERS = AA_HYDROPATHICITY_INDEX
     for aa in AMINO_ACIDS:
-        AMINO_ACID_NUMBERS.update({aa: 1.})
-        # AMINO_ACID_NUMBERS.update({aa: AA_HYDROPATHICITY_INDEX[aa] / 4.5})
+        AMINO_ACID_NUMBERS.update({aa: [(5.5-AA_HYDROPATHICITY_INDEX[aa]) / 10,
+                                        AA_BULKINESS_INDEX[aa] / 21.67,
+                                        (25.-AA_FLEXIBILITY_INDEX[aa]) / 25.]})
+else:
+    for aa in AMINO_ACIDS:
+        AMINO_ACID_NUMBERS.update({aa: [1.]})
+ary_dim = 2 + len(AMINO_ACID_NUMBERS[AMINO_ACIDS[0]])
 
 
 class Atom(object):
@@ -215,8 +215,8 @@ def rotation_axis(head):
     z = head.z
     c = ((y - x) ** 2 /
          ((y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) ** 2
-           + (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) ** 2
-           + (y - x) ** 2)
+          + (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) ** 2
+          + (y - x) ** 2)
          ) ** 0.5
     a = (y * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) / (x - y) * c
     b = (x * res * (x ** 2 + y ** 2 + z ** 2 - 2 * s ** 2) ** 0.5 / ar - z) / (y - x) * c
@@ -317,7 +317,7 @@ def close_neibor(array, x_ary, y_ary, dot, dis_x, dis_y, rec):
         for (i, j) in neibors:
             try:
                 if array[x_ary + i * step, y_ary + j * step, 2] == 0:
-                    array[x_ary + i * step, y_ary + j * step] = [dot.z, dot.index, AMINO_ACID_NUMBERS.get(dot.aa)]
+                    array[x_ary + i * step, y_ary + j * step] = [dot.z, dot.index] + AMINO_ACID_NUMBERS.get(dot.aa)
                     rec.update({(x_ary + i * step, y_ary + j * step): dot})
                     # print('dot%d:%d,%d->%d,%d'%(dot[6],x,y,x+i*step,y+j*step))
                     return array
@@ -335,15 +335,20 @@ def lattice_battle(array, x_ary, y_ary, dot1, dot2, rec):  # dot1 is original; d
     if dis1_x ** 2 + dis1_y ** 2 > dis2_x ** 2 + dis2_y ** 2:
         # print('%d / %d swap!'%(dot1[6],dot2[6]))
         array = close_neibor(array, x_ary, y_ary, dot1, dis1_x, dis1_y, rec)
-        array[x_ary, y_ary] = [dot2.z, dot2.index, AMINO_ACID_NUMBERS.get(dot2.aa)]
-        rec.update({(x_ary, y_ary): dot2})
+        draw_atom(x_ary, y_ary, dot2, array, rec)
     else:
         array = close_neibor(array, x_ary, y_ary, dot2, dis2_x, dis2_y, rec)
     return array
 
 
-def arraylize(atoms):
-    array = np.zeros([res, res, 3], dtype=float, order='C')
+def draw_atom(x, y, dot, array, rec):
+    if array[x, y, -1] == 0:
+        array[x, y] = [dot.z, dot.index] + AMINO_ACID_NUMBERS[dot.aa]
+        rec.update({(x, y): dot})
+
+
+def arraylize(atoms, array_dim):
+    array = np.zeros([res, res, array_dim], dtype=float, order='C')
     rec = {}  # atoms record
     for atom in atoms:
         x_ary = int((atom.x + ar) // (2 * s))
@@ -351,8 +356,7 @@ def arraylize(atoms):
         if rec.get((x_ary, y_ary)):
             array = lattice_battle(array, x_ary, y_ary, rec[(x_ary, y_ary)], atom, rec)
         else:
-            array[x_ary, y_ary] = [atom.z, atom.index, AMINO_ACID_NUMBERS.get(atom.aa)]
-            rec.update({(x_ary, y_ary): atom})
+            draw_atom(x_ary, y_ary, atom, array, rec)
     return array, rec
 
 
@@ -444,9 +448,10 @@ def vis_normal_dis(values, var, coefficient):
     plt.show()
 
 
-def draw_dot(x, y, dot1,z_add,idx_add, array):
+def draw_dot(x, y, dot1, z_add, idx_add, array):
     if array[x, y, 2] == 0:
-        array[x, y] = [dot1.z + z_add, dot1.index + idx_add, 0]
+        array[x, y] = [dot1.z + z_add, dot1.index + idx_add, 0, 0, 0]
+
 
 def dots_connection(dot1, dot2, array, site):
     x = site[dot1][0]
@@ -456,10 +461,10 @@ def dots_connection(dot1, dot2, array, site):
     y_r = sign(site[dot2][1] - y)
     x_s = abs(site[dot2][0] - x)
     y_s = abs(site[dot2][1] - y)
-    dis_c = max(x_s , y_s)+1
-    if x_s + y_s  > 2:
+    dis_c = max(x_s, y_s)+1
+    if x_s + y_s > 2:
         for i in range(max(x_s, y_s)):
-            l = (i + 1)
+            l = i + 1
             if min(x_s, y_s) <= 1:
                 if x_s > y_s:
                     draw_dot(x + l*x_r, y, dot1, z_s*l/dis_c, l/dis_c, array)
@@ -469,9 +474,9 @@ def dots_connection(dot1, dot2, array, site):
                 t = max(x_s, y_s) // min(x_s, y_s)
                 remainder = max(x_s, y_s) % min(x_s, y_s)
                 if x_s > y_s:
-                    j = [l,i//t,l,y_s]
+                    j = [l, i//t, l, y_s]
                 else:
-                    j = [i//t,l,x_s,l]
+                    j = [i//t, l, x_s, l]
                 if i < max(x_s, y_s) - remainder:
                     draw_dot(x + j[0] * x_r, y + j[1] * y_r, dot1, z_s*l/dis_c, l/dis_c, array)
                 else:
@@ -489,10 +494,10 @@ def draw_connection(atoms, array, rec):
 def write_log(path):
     arg_name_list = ['dataset', 'resolution', 'input_type', 'output_type', 'axis_range', 'multi_atom',
                      'move2center', 'redistribute', 'redistribute_rate', 'relative_number', 'draw_connection',
-                     'aminoacid_number']
+                     'aminoacid_message']
     arg_list = [args.dataset, args.resolution, args.input_type, args.output_type, args.axis_range, args.multi_atom,
                 args.move2center, args.redistribute, args.redistribute_rate, args.relative_number, args.draw_connection,
-                args.aminoacid_number]
+                args.aminoacid_message]
     write_list = [time.strftime("%Y%m%d_%H%M", time.localtime())]
     for i in range(len(arg_name_list)):
         print("%s = %s" % (arg_name_list[i], str(arg_list[i])))
@@ -528,18 +533,19 @@ def process():
                 if args.move2center:
                     atoms = move2center(atoms)
                 if args.draw_connection:
-                    array, rec = arraylize(atoms)
+                    array, rec = arraylize(atoms, ary_dim)
                     draw_connection(atoms, array, rec)
                 else:
-                    array, _ = arraylize(atoms)
+                    array, _ = arraylize(atoms, ary_dim)
                 if args.relative_number:
                     array[:, :, 1] /= (len(atoms) + 1)
                 output_name = filename.replace('.cif', '.npy')
                 np.save(output_dir + '\\' + output_name, array)
-                matplotlib.image.imsave(output_dir + '\\' + output_name.replace('.npy', '.png'), array)
-                num += 1
-                if num == 10:
-                    break
+                # break
+                # matplotlib.image.imsave(output_dir + '\\' + output_name.replace('.npy', '.png'), array)
+                # num += 1
+                # if num == 10:
+                #     break
     elif args.output_type == 'distance_map':
         if args.multi_atom:
             for filename in os.listdir(input_folder):
